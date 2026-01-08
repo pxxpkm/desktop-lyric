@@ -6,11 +6,22 @@
         WindowStartupLocation="CenterScreen"
         Background="#1a1a2e">
 
-    <Grid>
-        <TextBlock Text="desktop lyric"
-                   FontSize="24"
+    <StackPanel VerticalAlignment="Center" Margin="30">
+        <TextBlock Text="♪ now playing"
+                   FontSize="12"
+                   Foreground="#666"
+                   Margin="0,0,0,8"/>
+        <TextBlock x:Name="TxtTitle" Text="waiting..."
+                   FontSize="22"
                    Foreground="#e0e0e0"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"/>
-    </Grid>
+                   FontWeight="Bold"/>
+        <TextBlock x:Name="TxtArtist" Text=""
+                   FontSize="14"
+                   Foreground="#888"
+                   Margin="0,4,0,0"/>
+        <TextBlock x:Name="TxtStatus" Text="not connected"
+                   FontSize="11"
+                   Foreground="#555"
+                   Margin="0,20,0,0"/>
+    </StackPanel>
 </Window>
