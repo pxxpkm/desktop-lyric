@@ -1,3 +1,6 @@
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using Windows.Media.Control;
@@ -9,13 +12,15 @@ public partial class MainWindow : Window
     private GlobalSystemMediaTransportControlsSessionManager? _mgr;
     private GlobalSystemMediaTransportControlsSession? _session;
     private DispatcherTimer _timer;
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
+
+    private string _lastTitle = "";
 
     public MainWindow()
     {
         InitializeComponent();
         Loaded += OnLoaded;
 
-        // poll every 2s, lazy but it works
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _timer.Tick += (_, _) => PollNowPlaying();
     }
@@ -35,7 +40,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                TxtStatus.Text = "no media session found";
+                TxtStatus.Text = "no media session";
             }
 
             _mgr.CurrentSessionChanged += (_, _) =>
@@ -64,12 +69,64 @@ public partial class MainWindow : Window
         {
             var props = await _session.TryGetMediaPropertiesAsync();
             if (props == null) return;
-            if (!string.IsNullOrEmpty(props.Title))
+            var title = props.Title ?? "";
+            var artist = props.Artist ?? "";
+
+            if (!string.IsNullOrEmpty(title))
             {
-                TxtTitle.Text = props.Title;
-                TxtArtist.Text = props.Artist ?? "";
+                TxtTitle.Text = title;
+                TxtArtist.Text = artist;
+
+                if (title != _lastTitle)
+                {
+                    _lastTitle = title;
+                    TxtLyrics.Text = "searching...";
+                    var lyrics = await SearchNetease(title, artist);
+                    TxtLyrics.Text = lyrics ?? "no lyrics found";
+                }
             }
         }
         catch { }
+    }
+
+    // just netease for now, hardcoded approach
+    private async Task<string?> SearchNetease(string title, string artist)
+    {
+        try
+        {
+            var q = Uri.EscapeDataString(title + " " + artist);
+            var url = "https://music.163.com/api/search/get?s=" + q + "&type=1&limit=5";
+            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            req.Content = new StringContent("", Encoding.UTF8, "application/x-www-form-urlencoded");
+            req.Headers.Referrer = new Uri("https://music.163.com");
+
+            var resp = await _http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("result", out var result)) return null;
+            if (!result.TryGetProperty("songs", out var songs)) return null;
+            if (songs.GetArrayLength() == 0) return null;
+
+            var songId = songs[0].GetProperty("id").GetInt64();
+
+            // fetch lyrics
+            var lUrl = "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1";
+            using var lReq = new HttpRequestMessage(HttpMethod.Get, lUrl);
+            lReq.Headers.Referrer = new Uri("https://music.163.com");
+            var lResp = await _http.SendAsync(lReq);
+            if (!lResp.IsSuccessStatusCode) return null;
+
+            using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
+            if (!lDoc.RootElement.TryGetProperty("lrc", out var lrc)) return null;
+            if (!lrc.TryGetProperty("lyric", out var lyricEl)) return null;
+
+            return lyricEl.GetString();
+        }
+        catch (Exception ex)
+        {
+            return "error: " + ex.Message;
+        }
     }
 }
