@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
 using Windows.Media.Control;
@@ -15,6 +16,7 @@ public partial class MainWindow : Window
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
 
     private string _lastTitle = "";
+    private List<LrcLine> _lines = new();
 
     public MainWindow()
     {
@@ -81,15 +83,24 @@ public partial class MainWindow : Window
                 {
                     _lastTitle = title;
                     TxtLyrics.Text = "searching...";
-                    var lyrics = await SearchNetease(title, artist);
-                    TxtLyrics.Text = lyrics ?? "no lyrics found";
+                    var raw = await SearchNetease(title, artist);
+                    if (raw != null)
+                    {
+                        _lines = ParseLrc(raw);
+                        // just show all lines for now, no time sync yet
+                        TxtLyrics.Text = string.Join("\n", _lines.Select(l => l.Text));
+                    }
+                    else
+                    {
+                        _lines = new();
+                        TxtLyrics.Text = "no lyrics found";
+                    }
                 }
             }
         }
         catch { }
     }
 
-    // just netease for now, hardcoded approach
     private async Task<string?> SearchNetease(string title, string artist)
     {
         try
@@ -111,7 +122,6 @@ public partial class MainWindow : Window
 
             var songId = songs[0].GetProperty("id").GetInt64();
 
-            // fetch lyrics
             var lUrl = "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1";
             using var lReq = new HttpRequestMessage(HttpMethod.Get, lUrl);
             lReq.Headers.Referrer = new Uri("https://music.163.com");
@@ -124,9 +134,34 @@ public partial class MainWindow : Window
 
             return lyricEl.GetString();
         }
-        catch (Exception ex)
+        catch
         {
-            return "error: " + ex.Message;
+            return null;
         }
     }
+
+    // [mm:ss.xx] text
+    private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d+)\](.*)");
+
+    private static List<LrcLine> ParseLrc(string raw)
+    {
+        var lines = new List<LrcLine>();
+        foreach (var line in raw.Split('\n'))
+        {
+            var m = LrcRegex.Match(line);
+            if (m.Success)
+            {
+                var min = int.Parse(m.Groups[1].Value);
+                var sec = int.Parse(m.Groups[2].Value);
+                var ms = int.Parse(m.Groups[3].Value) * 10; // xx is centiseconds
+                var text = m.Groups[4].Value.Trim();
+                if (string.IsNullOrEmpty(text)) continue;
+                var time = TimeSpan.FromMinutes(min) + TimeSpan.FromSeconds(sec) + TimeSpan.FromMilliseconds(ms);
+                lines.Add(new LrcLine(time, text));
+            }
+        }
+        return lines.OrderBy(l => l.Time).ToList();
+    }
 }
+
+public record LrcLine(TimeSpan Time, string Text);
