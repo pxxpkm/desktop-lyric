@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -12,19 +13,29 @@ public partial class MainWindow : Window
 {
     private GlobalSystemMediaTransportControlsSessionManager? _mgr;
     private GlobalSystemMediaTransportControlsSession? _session;
-    private DispatcherTimer _timer;
+    private DispatcherTimer _pollTimer;
+    private DispatcherTimer _syncTimer;
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
 
     private string _lastTitle = "";
     private List<LrcLine> _lines = new();
+
+    // time tracking — use stopwatch between smtc polls
+    private readonly Stopwatch _sw = new();
+    private TimeSpan _basePos = TimeSpan.Zero;
+    private bool _isPlaying;
 
     public MainWindow()
     {
         InitializeComponent();
         Loaded += OnLoaded;
 
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _timer.Tick += (_, _) => PollNowPlaying();
+        _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _pollTimer.Tick += (_, _) => PollNowPlaying();
+
+        // sync lyrics display faster
+        _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _syncTimer.Tick += (_, _) => SyncLyrics();
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -38,7 +49,8 @@ public partial class MainWindow : Window
             {
                 TxtStatus.Text = "connected: " + (_session.SourceAppUserModelId ?? "?");
                 PollNowPlaying();
-                _timer.Start();
+                _pollTimer.Start();
+                _syncTimer.Start();
             }
             else
             {
@@ -53,7 +65,8 @@ public partial class MainWindow : Window
                     if (_session != null)
                     {
                         TxtStatus.Text = "connected: " + (_session.SourceAppUserModelId ?? "?");
-                        _timer.Start();
+                        _pollTimer.Start();
+                        _syncTimer.Start();
                     }
                 });
             };
@@ -82,23 +95,66 @@ public partial class MainWindow : Window
                 if (title != _lastTitle)
                 {
                     _lastTitle = title;
-                    TxtLyrics.Text = "searching...";
+                    TxtCurrent.Text = "searching...";
+                    TxtPrev.Text = "";
+                    TxtNext.Text = "";
                     var raw = await SearchNetease(title, artist);
                     if (raw != null)
                     {
                         _lines = ParseLrc(raw);
-                        // just show all lines for now, no time sync yet
-                        TxtLyrics.Text = string.Join("\n", _lines.Select(l => l.Text));
+                        TxtCurrent.Text = _lines.Count > 0 ? "♪" : "no lyrics";
                     }
                     else
                     {
                         _lines = new();
-                        TxtLyrics.Text = "no lyrics found";
+                        TxtCurrent.Text = "no lyrics found";
                     }
                 }
             }
+
+            // read playback position
+            var info = _session.GetPlaybackInfo();
+            _isPlaying = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+
+            if (_isPlaying)
+            {
+                var tl = _session.GetTimelineProperties();
+                var pos = tl.Position;
+                _basePos = pos;
+                _sw.Restart();
+            }
+            else
+            {
+                _sw.Stop();
+            }
         }
         catch { }
+    }
+
+    private void SyncLyrics()
+    {
+        if (_lines.Count == 0 || !_isPlaying) return;
+
+        var pos = _basePos + _sw.Elapsed;
+        TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
+
+        // find current line
+        int idx = -1;
+        for (int i = _lines.Count - 1; i >= 0; i--)
+        {
+            if (_lines[i].Time <= pos)
+            {
+                idx = i;
+                break;
+            }
+        }
+
+        if (idx >= 0)
+        {
+            TxtCurrent.Text = _lines[idx].Text;
+            TxtPrev.Text = idx > 0 ? _lines[idx - 1].Text : "";
+            TxtNext.Text = idx < _lines.Count - 1 ? _lines[idx + 1].Text : "";
+        }
     }
 
     private async Task<string?> SearchNetease(string title, string artist)
@@ -140,7 +196,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // [mm:ss.xx] text
     private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d+)\](.*)");
 
     private static List<LrcLine> ParseLrc(string raw)
@@ -153,7 +208,7 @@ public partial class MainWindow : Window
             {
                 var min = int.Parse(m.Groups[1].Value);
                 var sec = int.Parse(m.Groups[2].Value);
-                var ms = int.Parse(m.Groups[3].Value) * 10; // xx is centiseconds
+                var ms = int.Parse(m.Groups[3].Value) * 10;
                 var text = m.Groups[4].Value.Trim();
                 if (string.IsNullOrEmpty(text)) continue;
                 var time = TimeSpan.FromMinutes(min) + TimeSpan.FromSeconds(sec) + TimeSpan.FromMilliseconds(ms);
