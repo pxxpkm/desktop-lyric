@@ -196,7 +196,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d+)\](.*)");
+    // some lrc files use [mm:ss.xx], some use [mm:ss.xxx]
+    private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d{2,3})\](.*)");
 
     private static List<LrcLine> ParseLrc(string raw)
     {
@@ -208,7 +209,9 @@ public partial class MainWindow : Window
             {
                 var min = int.Parse(m.Groups[1].Value);
                 var sec = int.Parse(m.Groups[2].Value);
-                var ms = int.Parse(m.Groups[3].Value) * 10;
+                var msRaw = m.Groups[3].Value;
+                // if 2 digits, it's centiseconds; if 3, milliseconds
+                var ms = msRaw.Length == 2 ? int.Parse(msRaw) * 10 : int.Parse(msRaw);
                 var text = m.Groups[4].Value.Trim();
                 if (string.IsNullOrEmpty(text)) continue;
                 var time = TimeSpan.FromMinutes(min) + TimeSpan.FromSeconds(sec) + TimeSpan.FromMilliseconds(ms);
