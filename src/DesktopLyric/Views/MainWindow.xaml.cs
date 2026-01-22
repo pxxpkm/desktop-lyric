@@ -162,7 +162,7 @@ public partial class MainWindow : Window
         try
         {
             var q = Uri.EscapeDataString(title + " " + artist);
-            var url = "https://music.163.com/api/search/get?s=" + q + "&type=1&limit=5";
+            var url = "https://music.163.com/api/search/get?s=" + q + "&type=1&limit=8";
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             req.Content = new StringContent("", Encoding.UTF8, "application/x-www-form-urlencoded");
             req.Headers.Referrer = new Uri("https://music.163.com");
@@ -176,7 +176,9 @@ public partial class MainWindow : Window
             if (!result.TryGetProperty("songs", out var songs)) return null;
             if (songs.GetArrayLength() == 0) return null;
 
-            var songId = songs[0].GetProperty("id").GetInt64();
+            // pick best match instead of just first
+            var songId = PickBestSong(songs, title, artist);
+            if (songId < 0) return null;
 
             var lUrl = "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1";
             using var lReq = new HttpRequestMessage(HttpMethod.Get, lUrl);
@@ -194,6 +196,44 @@ public partial class MainWindow : Window
         {
             return null;
         }
+    }
+
+    private static long PickBestSong(JsonElement songs, string title, string artist)
+    {
+        long bestId = -1;
+        int bestScore = -1;
+        var tLow = title.ToLowerInvariant().Trim();
+        var aLow = artist.ToLowerInvariant().Trim();
+
+        foreach (var song in songs.EnumerateArray())
+        {
+            var name = (song.GetProperty("name").GetString() ?? "").ToLowerInvariant();
+            int score = 0;
+
+            if (name == tLow) score += 100;
+            else if (name.Contains(tLow) || tLow.Contains(name)) score += 50;
+
+            if (song.TryGetProperty("artists", out var arts))
+            {
+                foreach (var a in arts.EnumerateArray())
+                {
+                    var an = (a.GetProperty("name").GetString() ?? "").ToLowerInvariant();
+                    if (an == aLow || aLow.Contains(an) || an.Contains(aLow))
+                    {
+                        score += 30;
+                        break;
+                    }
+                }
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestId = song.GetProperty("id").GetInt64();
+            }
+        }
+
+        return bestScore >= 20 ? bestId : -1;
     }
 
     // some lrc files use [mm:ss.xx], some use [mm:ss.xxx]
