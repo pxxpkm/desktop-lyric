@@ -98,11 +98,11 @@ public partial class MainWindow : Window
                     TxtCurrent.Text = "searching...";
                     TxtPrev.Text = "";
                     TxtNext.Text = "";
-                    var raw = await SearchNetease(title, artist);
-                    if (raw != null)
+                    var result = await SearchNetease(title, artist);
+                    if (result != null && result.Count > 0)
                     {
-                        _lines = ParseLrc(raw);
-                        TxtCurrent.Text = _lines.Count > 0 ? "♪" : "no lyrics";
+                        _lines = result;
+                        TxtCurrent.Text = "♪";
                     }
                     else
                     {
@@ -152,12 +152,13 @@ public partial class MainWindow : Window
         if (idx >= 0)
         {
             TxtCurrent.Text = _lines[idx].Text;
+            TxtTrans.Text = _lines[idx].TranslatedText ?? "";
             TxtPrev.Text = idx > 0 ? _lines[idx - 1].Text : "";
             TxtNext.Text = idx < _lines.Count - 1 ? _lines[idx + 1].Text : "";
         }
     }
 
-    private async Task<string?> SearchNetease(string title, string artist)
+    private async Task<List<LrcLine>?> SearchNetease(string title, string artist)
     {
         try
         {
@@ -180,7 +181,7 @@ public partial class MainWindow : Window
             var songId = PickBestSong(songs, title, artist);
             if (songId < 0) return null;
 
-            var lUrl = "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1";
+            var lUrl = "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&tv=1";
             using var lReq = new HttpRequestMessage(HttpMethod.Get, lUrl);
             lReq.Headers.Referrer = new Uri("https://music.163.com");
             var lResp = await _http.SendAsync(lReq);
@@ -189,8 +190,30 @@ public partial class MainWindow : Window
             using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
             if (!lDoc.RootElement.TryGetProperty("lrc", out var lrc)) return null;
             if (!lrc.TryGetProperty("lyric", out var lyricEl)) return null;
+            var lrcStr = lyricEl.GetString();
+            if (string.IsNullOrEmpty(lrcStr)) return null;
 
-            return lyricEl.GetString();
+            var lyrics = ParseLrc(lrcStr);
+
+            // merge translation if available
+            if (lDoc.RootElement.TryGetProperty("tlyric", out var tl) &&
+                tl.TryGetProperty("lyric", out var tlEl))
+            {
+                var transStr = tlEl.GetString();
+                if (!string.IsNullOrEmpty(transStr))
+                {
+                    var transLines = ParseLrc(transStr);
+                    foreach (var t in transLines)
+                    {
+                        // find closest original line
+                        var match = lyrics.MinBy(l => Math.Abs((l.Time - t.Time).Ticks));
+                        if (match != null && Math.Abs((match.Time - t.Time).TotalMilliseconds) < 500)
+                            match.TranslatedText = t.Text;
+                    }
+                }
+            }
+
+            return lyrics;
         }
         catch
         {
@@ -262,4 +285,7 @@ public partial class MainWindow : Window
     }
 }
 
-public record LrcLine(TimeSpan Time, string Text);
+public record LrcLine(TimeSpan Time, string Text)
+{
+    public string? TranslatedText { get; set; }
+}

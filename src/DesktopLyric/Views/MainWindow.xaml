@@ -33,6 +33,10 @@
             <TextBlock x:Name="TxtCurrent" Text=""
                        FontSize="18" Foreground="#00d4ff" FontWeight="Bold"
                        TextAlignment="Center" TextWrapping="Wrap"/>
+            <TextBlock x:Name="TxtTrans" Text=""
+                       FontSize="13" Foreground="#bbb"
+                       TextAlignment="Center" Margin="0,4,0,0"
+                       TextWrapping="Wrap"/>
             <TextBlock x:Name="TxtNext" Text=""
                        FontSize="12" Foreground="#444"
                        TextAlignment="Center" Margin="0,6,0,0"/>
