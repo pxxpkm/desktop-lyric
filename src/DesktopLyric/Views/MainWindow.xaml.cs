@@ -19,6 +19,7 @@ public partial class MainWindow : Window
 
     private string _lastTitle = "";
     private List<LrcLine> _lines = new();
+    private int _searchGen; // cancel stale searches
 
     // time tracking — use stopwatch between smtc polls
     private readonly Stopwatch _sw = new();
@@ -95,10 +96,22 @@ public partial class MainWindow : Window
                 if (title != _lastTitle)
                 {
                     _lastTitle = title;
+                    var gen = ++_searchGen;
                     TxtCurrent.Text = "searching...";
+                    TxtTrans.Text = "";
                     TxtPrev.Text = "";
                     TxtNext.Text = "";
+
+                    // try netease first, then qq
                     var result = await SearchNetease(title, artist);
+                    if (gen != _searchGen) return;
+
+                    if (result == null || result.Count == 0)
+                    {
+                        result = await SearchQQ(title, artist);
+                        if (gen != _searchGen) return;
+                    }
+
                     if (result != null && result.Count > 0)
                     {
                         _lines = result;
@@ -261,6 +274,66 @@ public partial class MainWindow : Window
 
     // some lrc files use [mm:ss.xx], some use [mm:ss.xxx]
     private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d{2,3})\](.*)");
+
+    private async Task<List<LrcLine>?> SearchQQ(string title, string artist)
+    {
+        try
+        {
+            var query = (title + " " + artist).Replace("\"", "");
+            var body = "{\"comm\":{\"ct\":19,\"cv\":1845},\"req\":{\"method\":\"DoSearchForQQMusicDesktop\",\"module\":\"music.search.SearchCgiService\",\"param\":{\"num_per_page\":8,\"page_num\":1,\"query\":\"" + query + "\",\"search_type\":0}}}";
+            using var sReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
+            sReq.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            sReq.Headers.Referrer = new Uri("https://y.qq.com");
+            var sResp = await _http.SendAsync(sReq);
+            if (!sResp.IsSuccessStatusCode) return null;
+
+            using var sDoc = JsonDocument.Parse(await sResp.Content.ReadAsStringAsync());
+            var list = sDoc.RootElement.GetProperty("req").GetProperty("data")
+                .GetProperty("body").GetProperty("song").GetProperty("list");
+            if (list.GetArrayLength() == 0) return null;
+
+            // just grab first for now, matching is hard with qq's format
+            var mid = list[0].GetProperty("mid").GetString();
+            if (string.IsNullOrEmpty(mid)) return null;
+
+            // fetch lyrics
+            var lyricBody = "{\"comm\":{\"ct\":19,\"cv\":1845},\"req\":{\"method\":\"GetPlayLyricInfo\",\"module\":\"music.musichallSong.PlayLyricInfo\",\"param\":{\"songMID\":\"" + mid + "\",\"songID\":0}}}";
+            using var lReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
+            lReq.Content = new StringContent(lyricBody, Encoding.UTF8, "application/json");
+            lReq.Headers.Referrer = new Uri("https://y.qq.com");
+            var lResp = await _http.SendAsync(lReq);
+            if (!lResp.IsSuccessStatusCode) return null;
+
+            using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
+            var data = lDoc.RootElement.GetProperty("req").GetProperty("data");
+            var lyricB64 = data.GetProperty("lyric").GetString();
+            if (string.IsNullOrEmpty(lyricB64)) return null;
+
+            var lrcStr = Encoding.UTF8.GetString(Convert.FromBase64String(lyricB64));
+            var lyrics = ParseLrc(lrcStr);
+            if (lyrics.Count == 0) return null;
+
+            // qq also has translation
+            if (data.TryGetProperty("trans", out var transEl))
+            {
+                var transB64 = transEl.GetString();
+                if (!string.IsNullOrEmpty(transB64))
+                {
+                    var transStr = Encoding.UTF8.GetString(Convert.FromBase64String(transB64));
+                    var transLines = ParseLrc(transStr);
+                    foreach (var t in transLines)
+                    {
+                        var match = lyrics.MinBy(l => Math.Abs((l.Time - t.Time).Ticks));
+                        if (match != null && Math.Abs((match.Time - t.Time).TotalMilliseconds) < 500)
+                            match.TranslatedText = t.Text;
+                    }
+                }
+            }
+
+            return lyrics;
+        }
+        catch { return null; }
+    }
 
     private static List<LrcLine> ParseLrc(string raw)
     {
