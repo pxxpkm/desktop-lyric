@@ -102,13 +102,19 @@ public partial class MainWindow : Window
                     TxtPrev.Text = "";
                     TxtNext.Text = "";
 
-                    // try netease first, then qq
+                    // try netease first, then qq, then lrclib
                     var result = await SearchNetease(title, artist);
                     if (gen != _searchGen) return;
 
                     if (result == null || result.Count == 0)
                     {
                         result = await SearchQQ(title, artist);
+                        if (gen != _searchGen) return;
+                    }
+
+                    if (result == null || result.Count == 0)
+                    {
+                        result = await SearchLrcLib(title, artist);
                         if (gen != _searchGen) return;
                     }
 
@@ -331,6 +337,41 @@ public partial class MainWindow : Window
             }
 
             return lyrics;
+        }
+        catch { return null; }
+    }
+
+    private async Task<List<LrcLine>?> SearchLrcLib(string title, string artist)
+    {
+        try
+        {
+            var url = "https://lrclib.net/api/search?track_name=" + Uri.EscapeDataString(title);
+            if (!string.IsNullOrEmpty(artist))
+                url += "&artist_name=" + Uri.EscapeDataString(artist);
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.UserAgent.ParseAdd("DesktopLyric/0.1");
+            var resp = await _http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            if (doc.RootElement.GetArrayLength() == 0) return null;
+
+            // grab first with synced lyrics
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.TryGetProperty("syncedLyrics", out var sl) &&
+                    sl.ValueKind == JsonValueKind.String)
+                {
+                    var lrcStr = sl.GetString();
+                    if (!string.IsNullOrEmpty(lrcStr))
+                    {
+                        var lines = ParseLrc(lrcStr);
+                        if (lines.Count > 0) return lines;
+                    }
+                }
+            }
+            return null;
         }
         catch { return null; }
     }
