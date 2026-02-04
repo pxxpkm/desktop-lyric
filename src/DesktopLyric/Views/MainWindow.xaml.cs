@@ -21,6 +21,12 @@ public partial class MainWindow : Window
     private List<LrcLine> _lines = new();
     private int _searchGen; // cancel stale searches
 
+    static MainWindow()
+    {
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+    }
+
     // time tracking — use stopwatch between smtc polls
     private readonly Stopwatch _sw = new();
     private TimeSpan _basePos = TimeSpan.Zero;
@@ -122,6 +128,13 @@ public partial class MainWindow : Window
                     {
                         _lines = result;
                         TxtCurrent.Text = "♪";
+
+                        // translate lines that don't have translation yet
+                        var needsTrans = _lines.Any(l => string.IsNullOrEmpty(l.TranslatedText));
+                        if (needsTrans)
+                        {
+                            _ = Task.Run(() => TranslateInBackground(_lines, gen));
+                        }
                     }
                     else
                     {
@@ -339,6 +352,60 @@ public partial class MainWindow : Window
             return lyrics;
         }
         catch { return null; }
+    }
+
+    private async Task TranslateInBackground(List<LrcLine> lines, int gen)
+    {
+        var toTranslate = lines.Where(l =>
+            !string.IsNullOrWhiteSpace(l.Text) && string.IsNullOrEmpty(l.TranslatedText)).ToList();
+        if (toTranslate.Count == 0) return;
+
+        // batch 10 lines at a time
+        for (int i = 0; i < toTranslate.Count; i += 10)
+        {
+            if (gen != _searchGen) return;
+            var batch = toTranslate.Skip(i).Take(10).ToList();
+            var combined = string.Join("\n", batch.Select(l => l.Text));
+
+            try
+            {
+                var q = Uri.EscapeDataString(combined);
+                var url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=" + q;
+                var resp = await _http.GetAsync(url);
+                if (!resp.IsSuccessStatusCode) continue;
+
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() == 0) continue;
+
+                var sb = new StringBuilder();
+                var segs = root[0];
+                if (segs.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var seg in segs.EnumerateArray())
+                    {
+                        if (seg.ValueKind == JsonValueKind.Array && seg.GetArrayLength() > 0)
+                            sb.Append(seg[0].GetString());
+                    }
+                }
+
+                var translated = sb.ToString().Trim();
+                if (string.IsNullOrEmpty(translated)) continue;
+
+                var tLines = translated.Split('\n');
+                for (int j = 0; j < batch.Count && j < tLines.Length; j++)
+                {
+                    var t = tLines[j].Trim();
+                    if (!string.IsNullOrEmpty(t) && t != batch[j].Text)
+                        batch[j].TranslatedText = t;
+                }
+            }
+            catch { }
+
+            // don't spam google
+            await Task.Delay(80);
+        }
     }
 
     private async Task<List<LrcLine>?> SearchLrcLib(string title, string artist)
