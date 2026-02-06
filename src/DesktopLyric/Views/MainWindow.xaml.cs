@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private readonly Stopwatch _sw = new();
     private TimeSpan _basePos = TimeSpan.Zero;
     private bool _isPlaying;
+    private string _lastArtist = "";
 
     public MainWindow()
     {
