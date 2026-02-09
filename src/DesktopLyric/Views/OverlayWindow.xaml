@@ -15,8 +15,11 @@
 
     <Border CornerRadius="12" Padding="16,10" Margin="6">
         <Border.Background>
-            <SolidColorBrush Color="#000000" Opacity="0.75"/>
+            <SolidColorBrush Color="#0a0a12" Opacity="0.85"/>
         </Border.Background>
+        <Border.Effect>
+            <DropShadowEffect Color="#000" BlurRadius="20" Opacity="0.5" ShadowDepth="4"/>
+        </Border.Effect>
 
         <StackPanel VerticalAlignment="Center">
             <TextBlock x:Name="OvCurrent" Text=""
