@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private TimeSpan _basePos = TimeSpan.Zero;
     private bool _isPlaying;
     private string _lastArtist = "";
+    private OverlayWindow? _overlay;
 
     public MainWindow()
     {
@@ -188,6 +189,8 @@ public partial class MainWindow : Window
             TxtTrans.Text = _lines[idx].TranslatedText ?? "";
             TxtPrev.Text = idx > 0 ? _lines[idx - 1].Text : "";
             TxtNext.Text = idx < _lines.Count - 1 ? _lines[idx + 1].Text : "";
+
+            _overlay?.UpdateLyrics(_lines[idx].Text, _lines[idx].TranslatedText);
         }
     }
 
@@ -464,6 +467,20 @@ public partial class MainWindow : Window
             }
         }
         return lines.OrderBy(l => l.Time).ToList();
+    }
+
+    private void ToggleOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        if (_overlay == null || !_overlay.IsVisible)
+        {
+            _overlay = new OverlayWindow();
+            _overlay.Show();
+        }
+        else
+        {
+            _overlay.Close();
+            _overlay = null;
+        }
     }
 }
 

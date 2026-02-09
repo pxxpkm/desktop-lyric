@@ -1,0 +1,36 @@
+<Window x:Class="DesktopLyric.Views.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Lyrics"
+        Width="700" Height="120"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        WindowStartupLocation="Manual"
+        Left="200" Top="40"
+        MouseLeftButtonDown="OnDrag">
+
+    <Border CornerRadius="12" Padding="16,10" Margin="6">
+        <Border.Background>
+            <SolidColorBrush Color="#000000" Opacity="0.75"/>
+        </Border.Background>
+
+        <StackPanel VerticalAlignment="Center">
+            <TextBlock x:Name="OvCurrent" Text=""
+                       FontSize="22" FontWeight="Bold"
+                       Foreground="#00d4ff"
+                       TextAlignment="Center"
+                       TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="OvTrans" Text=""
+                       FontSize="14" Foreground="#ddd"
+                       TextAlignment="Center"
+                       TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+    </Border>
+</Window>
