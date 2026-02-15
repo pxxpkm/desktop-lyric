@@ -122,6 +122,12 @@ public partial class MainWindow : Window
 
                     if (result == null || result.Count == 0)
                     {
+                        result = await SearchKugou(title, artist);
+                        if (gen != _searchGen) return;
+                    }
+
+                    if (result == null || result.Count == 0)
+                    {
                         result = await SearchLrcLib(title, artist);
                         if (gen != _searchGen) return;
                     }
@@ -354,6 +360,52 @@ public partial class MainWindow : Window
             }
 
             return lyrics;
+        }
+        catch { return null; }
+    }
+
+    private async Task<List<LrcLine>?> SearchKugou(string title, string artist)
+    {
+        try
+        {
+            var kw = Uri.EscapeDataString(title + " " + artist);
+            var sResp = await _http.GetAsync(
+                "http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=" + kw + "&page=1&pagesize=8");
+            if (!sResp.IsSuccessStatusCode) return null;
+
+            using var sDoc = JsonDocument.Parse(await sResp.Content.ReadAsStringAsync());
+            var info = sDoc.RootElement.GetProperty("data").GetProperty("info");
+            if (info.GetArrayLength() == 0) return null;
+
+            // just take first result's hash
+            var hash = info[0].GetProperty("hash").GetString();
+            if (string.IsNullOrEmpty(hash)) return null;
+
+            // search for lyrics by hash
+            var lsResp = await _http.GetAsync(
+                "https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=" + kw + "&hash=" + hash);
+            if (!lsResp.IsSuccessStatusCode) return null;
+
+            using var lsDoc = JsonDocument.Parse(await lsResp.Content.ReadAsStringAsync());
+            var cands = lsDoc.RootElement.GetProperty("candidates");
+            if (cands.GetArrayLength() == 0) return null;
+
+            var c0 = cands[0];
+            var id = c0.GetProperty("id").GetString();
+            var ak = c0.GetProperty("accesskey").GetString();
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(ak)) return null;
+
+            var dlResp = await _http.GetAsync(
+                "https://lyrics.kugou.com/download?ver=1&client=pc&id=" + id + "&accesskey=" + ak + "&fmt=lrc&charset=utf8");
+            if (!dlResp.IsSuccessStatusCode) return null;
+
+            using var dlDoc = JsonDocument.Parse(await dlResp.Content.ReadAsStringAsync());
+            var contentB64 = dlDoc.RootElement.GetProperty("content").GetString();
+            if (string.IsNullOrEmpty(contentB64)) return null;
+
+            var lrcStr = Encoding.UTF8.GetString(Convert.FromBase64String(contentB64));
+            var lyrics = ParseLrc(lrcStr);
+            return lyrics.Count > 0 ? lyrics : null;
         }
         catch { return null; }
     }
