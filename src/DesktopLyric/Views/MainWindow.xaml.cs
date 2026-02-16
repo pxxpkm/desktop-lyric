@@ -42,8 +42,8 @@ public partial class MainWindow : Window
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _pollTimer.Tick += (_, _) => PollNowPlaying();
 
-        // sync lyrics display faster
-        _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        // sync lyrics display — 100ms feels smoother
+        _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _syncTimer.Tick += (_, _) => SyncLyrics();
     }
 
