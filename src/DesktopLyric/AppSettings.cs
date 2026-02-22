@@ -1,0 +1,42 @@
+using System.IO;
+using System.Text.Json;
+
+namespace DesktopLyric;
+
+public class AppSettings
+{
+    public bool BoldLyrics { get; set; } = true;
+    public bool HideTranslation { get; set; } = false;
+    public double OverlayOpacity { get; set; } = 85;
+    public string AccentColor { get; set; } = "#00d4ff";
+
+    private static readonly string SettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "DesktopLyric", "settings.json");
+
+    public static AppSettings Load()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                return JsonSerializer.Deserialize<AppSettings>(json) ?? new();
+            }
+        }
+        catch { }
+        return new();
+    }
+
+    public void Save()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(SettingsPath)!;
+            Directory.CreateDirectory(dir);
+            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(SettingsPath, json);
+        }
+        catch { }
+    }
+}

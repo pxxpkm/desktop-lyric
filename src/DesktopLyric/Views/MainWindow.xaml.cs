@@ -33,10 +33,12 @@ public partial class MainWindow : Window
     private bool _isPlaying;
     private string _lastArtist = "";
     private OverlayWindow? _overlay;
+    private AppSettings _settings;
 
     public MainWindow()
     {
         InitializeComponent();
+        _settings = AppSettings.Load();
         Loaded += OnLoaded;
 
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -45,6 +47,15 @@ public partial class MainWindow : Window
         // sync lyrics display — 100ms feels smoother
         _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _syncTimer.Tick += (_, _) => SyncLyrics();
+
+        ApplySettings();
+    }
+
+    private void ApplySettings()
+    {
+        TxtCurrent.FontWeight = _settings.BoldLyrics
+            ? System.Windows.FontWeights.Bold
+            : System.Windows.FontWeights.Normal;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -192,11 +203,13 @@ public partial class MainWindow : Window
         if (idx >= 0)
         {
             TxtCurrent.Text = _lines[idx].Text;
-            TxtTrans.Text = _lines[idx].TranslatedText ?? "";
+            TxtTrans.Text = _settings.HideTranslation ? "" : (_lines[idx].TranslatedText ?? "");
             TxtPrev.Text = idx > 0 ? _lines[idx - 1].Text : "";
             TxtNext.Text = idx < _lines.Count - 1 ? _lines[idx + 1].Text : "";
 
-            _overlay?.UpdateLyrics(_lines[idx].Text, _lines[idx].TranslatedText);
+            _overlay?.UpdateLyrics(
+                _lines[idx].Text,
+                _settings.HideTranslation ? null : _lines[idx].TranslatedText);
         }
     }
 
@@ -526,6 +539,7 @@ public partial class MainWindow : Window
         if (_overlay == null || !_overlay.IsVisible)
         {
             _overlay = new OverlayWindow();
+            _overlay.Opacity = _settings.OverlayOpacity / 100.0;
             _overlay.Show();
         }
         else
