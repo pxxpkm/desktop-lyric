@@ -202,14 +202,22 @@ public partial class MainWindow : Window
 
         if (idx >= 0)
         {
-            TxtCurrent.Text = _lines[idx].Text;
-            TxtTrans.Text = _settings.HideTranslation ? "" : (_lines[idx].TranslatedText ?? "");
+            var text = _lines[idx].Text;
+            var trans = _lines[idx].TranslatedText;
+            if (_settings.ForceTraditional)
+            {
+                text = S2TConverter.Convert(text);
+                if (trans != null) trans = S2TConverter.Convert(trans);
+            }
+
+            TxtCurrent.Text = text;
+            TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
             TxtPrev.Text = idx > 0 ? _lines[idx - 1].Text : "";
             TxtNext.Text = idx < _lines.Count - 1 ? _lines[idx + 1].Text : "";
 
             _overlay?.UpdateLyrics(
-                _lines[idx].Text,
-                _settings.HideTranslation ? null : _lines[idx].TranslatedText);
+                text,
+                _settings.HideTranslation ? null : trans);
         }
     }
 

@@ -7,6 +7,7 @@ public class AppSettings
 {
     public bool BoldLyrics { get; set; } = true;
     public bool HideTranslation { get; set; } = false;
+    public bool ForceTraditional { get; set; } = false;
     public double OverlayOpacity { get; set; } = 85;
     public string AccentColor { get; set; } = "#00d4ff";
 
