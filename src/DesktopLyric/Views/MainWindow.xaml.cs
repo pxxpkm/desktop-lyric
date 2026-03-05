@@ -398,9 +398,21 @@ public partial class MainWindow : Window
             var info = sDoc.RootElement.GetProperty("data").GetProperty("info");
             if (info.GetArrayLength() == 0) return null;
 
-            // just take first result's hash
-            var hash = info[0].GetProperty("hash").GetString();
-            if (string.IsNullOrEmpty(hash)) return null;
+            // pick best match
+            string? hash = null;
+            var tLow = title.ToLowerInvariant().Trim();
+            var aLow = artist.ToLowerInvariant().Trim();
+            int best = -1;
+            foreach (var s in info.EnumerateArray())
+            {
+                var n = (s.GetProperty("songname").GetString() ?? "").ToLowerInvariant();
+                var sn = (s.GetProperty("singername").GetString() ?? "").ToLowerInvariant();
+                int sc = 0;
+                if (n == tLow) sc += 100; else if (n.Contains(tLow) || tLow.Contains(n)) sc += 50;
+                if (sn == aLow || aLow.Contains(sn) || sn.Contains(aLow)) sc += 30;
+                if (sc > best) { best = sc; hash = s.GetProperty("hash").GetString(); }
+            }
+            if (best < 20 || string.IsNullOrEmpty(hash)) return null;
 
             // search for lyrics by hash
             var lsResp = await _http.GetAsync(
