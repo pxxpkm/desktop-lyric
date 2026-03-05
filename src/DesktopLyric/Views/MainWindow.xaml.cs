@@ -342,9 +342,27 @@ public partial class MainWindow : Window
                 .GetProperty("body").GetProperty("song").GetProperty("list");
             if (list.GetArrayLength() == 0) return null;
 
-            // just grab first for now, matching is hard with qq's format
-            var mid = list[0].GetProperty("mid").GetString();
-            if (string.IsNullOrEmpty(mid)) return null;
+            // match by title + artist
+            string? mid = null;
+            var tLow = title.ToLowerInvariant().Trim();
+            var aLow = artist.ToLowerInvariant().Trim();
+            int best = -1;
+            foreach (var s in list.EnumerateArray())
+            {
+                var n = (s.GetProperty("name").GetString() ?? "").ToLowerInvariant();
+                int sc = 0;
+                if (n == tLow) sc += 100; else if (n.Contains(tLow) || tLow.Contains(n)) sc += 50;
+                if (s.TryGetProperty("singer", out var singers))
+                {
+                    foreach (var si in singers.EnumerateArray())
+                    {
+                        var sn = (si.GetProperty("name").GetString() ?? "").ToLowerInvariant();
+                        if (sn == aLow || aLow.Contains(sn) || sn.Contains(aLow)) { sc += 30; break; }
+                    }
+                }
+                if (sc > best) { best = sc; mid = s.GetProperty("mid").GetString(); }
+            }
+            if (best < 10 || string.IsNullOrEmpty(mid)) return null;
 
             // fetch lyrics
             var lyricBody = "{\"comm\":{\"ct\":19,\"cv\":1845},\"req\":{\"method\":\"GetPlayLyricInfo\",\"module\":\"music.musichallSong.PlayLyricInfo\",\"param\":{\"songMID\":\"" + mid + "\",\"songID\":0}}}";
