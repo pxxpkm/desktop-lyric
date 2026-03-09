@@ -10,10 +10,11 @@ public partial class OverlayWindow : Window
         InitializeComponent();
     }
 
-    public void UpdateLyrics(string current, string? translated)
+    public void UpdateLyrics(string current, string? translated, string? next = null)
     {
         OvCurrent.Text = current ?? "";
         OvTrans.Text = translated ?? "";
+        OvNext.Text = next ?? "";
     }
 
     private void OnDrag(object sender, MouseButtonEventArgs e)

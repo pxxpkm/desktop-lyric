@@ -217,7 +217,8 @@ public partial class MainWindow : Window
 
             _overlay?.UpdateLyrics(
                 text,
-                _settings.HideTranslation ? null : trans);
+                _settings.HideTranslation ? null : trans,
+                idx < _lines.Count - 1 ? _lines[idx + 1].Text : null);
         }
     }
 
