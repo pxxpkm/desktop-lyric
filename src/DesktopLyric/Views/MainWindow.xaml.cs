@@ -121,27 +121,19 @@ public partial class MainWindow : Window
                     TxtPrev.Text = "";
                     TxtNext.Text = "";
 
-                    // try netease first, then qq, then lrclib
-                    var result = await SearchNetease(title, artist);
+                    // run all sources in parallel, pick first with results
+                    var tasks = new[]
+                    {
+                        SearchNetease(title, artist),
+                        SearchQQ(title, artist),
+                        SearchKugou(title, artist),
+                        SearchLrcLib(title, artist)
+                    };
+                    var results = await Task.WhenAll(tasks);
                     if (gen != _searchGen) return;
 
-                    if (result == null || result.Count == 0)
-                    {
-                        result = await SearchQQ(title, artist);
-                        if (gen != _searchGen) return;
-                    }
-
-                    if (result == null || result.Count == 0)
-                    {
-                        result = await SearchKugou(title, artist);
-                        if (gen != _searchGen) return;
-                    }
-
-                    if (result == null || result.Count == 0)
-                    {
-                        result = await SearchLrcLib(title, artist);
-                        if (gen != _searchGen) return;
-                    }
+                    // pick first non-null result (priority order: netease > qq > kugou > lrclib)
+                    var result = results.FirstOrDefault(r => r != null && r.Count > 0);
 
                     if (result != null && result.Count > 0)
                     {
