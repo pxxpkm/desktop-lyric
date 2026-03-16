@@ -135,6 +135,20 @@ public partial class MainWindow : Window
                     // pick first non-null result (priority order: netease > qq > kugou > lrclib)
                     var result = results.FirstOrDefault(r => r != null && r.Count > 0);
 
+                    // if nothing found, try with cleaned title
+                    if (result == null || result.Count == 0)
+                    {
+                        var clean = CleanTitle(title);
+                        if (clean != title)
+                        {
+                            var retry = await Task.WhenAll(
+                                SearchNetease(clean, artist),
+                                SearchLrcLib(clean, artist));
+                            if (gen != _searchGen) return;
+                            result = retry.FirstOrDefault(r => r != null && r.Count > 0);
+                        }
+                    }
+
                     if (result != null && result.Count > 0)
                     {
                         _lines = result;
@@ -317,7 +331,14 @@ public partial class MainWindow : Window
 
     // some lrc files use [mm:ss.xx], some use [mm:ss.xxx]
     private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d{2,3})\](.*)");
+    private static readonly Regex TitleCleanRegex = new(@"\s*[\(\[（].*?[\)\]）]\s*$");
 
+    /// <summary>strip (feat. X), (Remastered), [Deluxe] etc from title for better search</summary>
+    private static string CleanTitle(string title)
+    {
+        var cleaned = TitleCleanRegex.Replace(title, "").Trim();
+        return string.IsNullOrEmpty(cleaned) ? title : cleaned;
+    }
     private async Task<List<LrcLine>?> SearchQQ(string title, string artist)
     {
         try
