@@ -80,7 +80,7 @@ public class LyricsService
             if (songId < 0) return null;
 
             using var lReq = new HttpRequestMessage(HttpMethod.Get,
-                "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&tv=1");
+                "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&tv=1&yv=1");
             lReq.Headers.Referrer = new Uri("https://music.163.com");
             var lResp = await _http.SendAsync(lReq);
             if (!lResp.IsSuccessStatusCode) return null;
@@ -93,6 +93,15 @@ public class LyricsService
 
             var lyrics = ParseLrc(lrcStr);
             if (lyrics.Count == 0) return null;
+
+            // try merge yrc word timings
+            if (lDoc.RootElement.TryGetProperty("yrc", out var yrcRoot) &&
+                yrcRoot.TryGetProperty("lyric", out var yrcEl))
+            {
+                var yrcStr = yrcEl.GetString();
+                if (!string.IsNullOrEmpty(yrcStr))
+                    MergeYrcTimings(lyrics, yrcStr);
+            }
 
             if (lDoc.RootElement.TryGetProperty("tlyric", out var tl) &&
                 tl.TryGetProperty("lyric", out var tlEl))
@@ -308,6 +317,63 @@ public class LyricsService
 
     // --- helpers ---
 
+    private static readonly Regex YrcLineRegex = new(@"^\[(\d+),(\d+)\]", RegexOptions.Compiled);
+    private static readonly Regex YrcWordRegex = new(@"\((\d+),(\d+),\d+\)", RegexOptions.Compiled);
+
+    private static void MergeYrcTimings(List<LrcLine> lyrics, string yrcBody)
+    {
+        var yrcLines = ParseYrcLines(yrcBody);
+        if (yrcLines.Count == 0) return;
+
+        int yi = 0;
+        foreach (var line in lyrics)
+        {
+            int ms = (int)Math.Round(line.Time.TotalMilliseconds);
+            while (yi < yrcLines.Count && yrcLines[yi].startMs + 150 < ms) yi++;
+            if (yi >= yrcLines.Count) break;
+            if (Math.Abs(yrcLines[yi].startMs - ms) <= 1200)
+            {
+                line.WordTimings = yrcLines[yi].words;
+                yi++;
+            }
+        }
+    }
+
+    private static List<(int startMs, List<KaraokeWordTiming> words)> ParseYrcLines(string yrc)
+    {
+        var result = new List<(int, List<KaraokeWordTiming>)>();
+        foreach (var raw in yrc.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (string.IsNullOrEmpty(line)) continue;
+            var hm = YrcLineRegex.Match(line);
+            if (!hm.Success) continue;
+            if (!int.TryParse(hm.Groups[1].Value, out int lineStart)) continue;
+
+            var rest = line[hm.Length..];
+            var matches = YrcWordRegex.Matches(rest);
+            if (matches.Count == 0) continue;
+
+            var words = new List<KaraokeWordTiming>();
+            for (int i = 0; i < matches.Count; i++)
+            {
+                var m = matches[i];
+                if (!int.TryParse(m.Groups[1].Value, out int absStart) ||
+                    !int.TryParse(m.Groups[2].Value, out int dur)) continue;
+                int textStart = m.Index + m.Length;
+                int textEnd = i + 1 < matches.Count ? matches[i + 1].Index : rest.Length;
+                var txt = rest[textStart..textEnd];
+                if (string.IsNullOrEmpty(txt)) continue;
+                int rel = absStart - lineStart;
+                if (rel < 0) rel = 0;
+                words.Add(new KaraokeWordTiming(rel, dur, txt));
+            }
+            if (words.Count > 0)
+                result.Add((lineStart, words));
+        }
+        return result;
+    }
+
     private static long PickBest(JsonElement songs, string title, string artist, string nameKey, string artistsKey)
     {
         long bestId = -1; int bestScore = -1;
@@ -374,4 +440,5 @@ public class LyricsService
 public record LrcLine(TimeSpan Time, string Text)
 {
     public string? TranslatedText { get; set; }
+    public List<KaraokeWordTiming>? WordTimings { get; set; }
 }
