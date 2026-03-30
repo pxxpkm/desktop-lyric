@@ -170,7 +170,9 @@ public partial class MainWindow : Window
 
             _overlay?.UpdateLyrics(text,
                 _settings.HideTranslation ? null : trans,
-                idx < _lines.Count - 1 ? _lines[idx + 1].Text : null);
+                idx < _lines.Count - 1 ? _lines[idx + 1].Text : null,
+                _lines[idx].WordTimings,
+                (pos - _lines[idx].Time).TotalMilliseconds);
         }
     }
 
