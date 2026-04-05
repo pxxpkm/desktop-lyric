@@ -15,9 +15,12 @@ public partial class MainWindow : Window
 
     private readonly LyricsService _lyrics = new();
     private AppSettings _settings;
+    private static readonly System.Net.Http.HttpClient _romajiHttp = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     private string _lastTitle = "";
     private List<LrcLine> _lines = new();
+    private string _lastRomajiInput = "";
+    private string _lastRomajiOutput = "";
 
     // time tracking
     private readonly Stopwatch _sw = new();
@@ -173,7 +176,71 @@ public partial class MainWindow : Window
                 idx < _lines.Count - 1 ? _lines[idx + 1].Text : null,
                 _lines[idx].WordTimings,
                 (pos - _lines[idx].Time).TotalMilliseconds);
+
+            // romaji
+            if (_settings.ShowRomaji && HasJapanese(text))
+                UpdateRomaji(text);
+            else
+                TxtRomaji.Text = "";
         }
+    }
+
+    private void UpdateRomaji(string text)
+    {
+        if (text == _lastRomajiInput)
+        {
+            TxtRomaji.Text = _lastRomajiOutput;
+            return;
+        }
+
+        var input = text;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var q = Uri.EscapeDataString(input);
+                var url = $"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=rm&q={q}";
+                var resp = await _romajiHttp.GetAsync(url);
+                if (!resp.IsSuccessStatusCode) return;
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (root.GetArrayLength() == 0) return;
+
+                var sb = new System.Text.StringBuilder();
+                var first = root[0];
+                if (first.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var seg in first.EnumerateArray())
+                    {
+                        if (seg.ValueKind == System.Text.Json.JsonValueKind.Array && seg.GetArrayLength() > 3)
+                        {
+                            var rm = seg[3].GetString();
+                            if (!string.IsNullOrEmpty(rm)) sb.Append(rm);
+                        }
+                    }
+                }
+                var romaji = sb.ToString().Trim();
+                if (!string.IsNullOrEmpty(romaji))
+                {
+                    await Dispatcher.BeginInvoke(() =>
+                    {
+                        _lastRomajiInput = input;
+                        _lastRomajiOutput = romaji;
+                        TxtRomaji.Text = romaji;
+                    });
+                }
+            }
+            catch { }
+        });
+    }
+
+    private static bool HasJapanese(string text)
+    {
+        foreach (var c in text)
+            if ((c >= 0x3040 && c <= 0x309F) || (c >= 0x30A0 && c <= 0x30FF) ||
+                (c >= 0x4E00 && c <= 0x9FFF)) return true;
+        return false;
     }
 
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)

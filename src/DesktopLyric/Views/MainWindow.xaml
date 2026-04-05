@@ -30,6 +30,10 @@
             <TextBlock x:Name="TxtPrev" Text=""
                        FontSize="12" Foreground="#444"
                        TextAlignment="Center" Margin="0,0,0,6"/>
+            <TextBlock x:Name="TxtRomaji" Text=""
+                       FontSize="10" Foreground="#5090c0"
+                       TextAlignment="Center" FontStyle="Italic"
+                       Margin="0,0,0,3"/>
             <TextBlock x:Name="TxtCurrent" Text=""
                        FontSize="18" Foreground="#00d4ff" FontWeight="Bold"
                        TextAlignment="Center" TextWrapping="Wrap"/>
