@@ -9,6 +9,7 @@ public class AppSettings
     public bool HideTranslation { get; set; } = false;
     public bool ForceTraditional { get; set; } = false;
     public bool ShowRomaji { get; set; } = false;
+    public int GlobalOffsetMs { get; set; } = 0;
     public double OverlayOpacity { get; set; } = 85;
     public string AccentColor { get; set; } = "#00d4ff";
 

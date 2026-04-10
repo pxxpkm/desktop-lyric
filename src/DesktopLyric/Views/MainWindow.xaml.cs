@@ -150,10 +150,15 @@ public partial class MainWindow : Window
         var pos = _basePos + _sw.Elapsed;
         TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
 
+        // apply offset
+        var extra = Services.LyricOffsetStore.GetMs(_lastTitle, "");
+        var lyricPos = pos + TimeSpan.FromMilliseconds(_settings.GlobalOffsetMs + extra);
+        if (lyricPos < TimeSpan.Zero) lyricPos = TimeSpan.Zero;
+
         int idx = -1;
         for (int i = _lines.Count - 1; i >= 0; i--)
         {
-            if (_lines[i].Time <= pos) { idx = i; break; }
+            if (_lines[i].Time <= lyricPos) { idx = i; break; }
         }
 
         if (idx >= 0)
@@ -175,7 +180,7 @@ public partial class MainWindow : Window
                 _settings.HideTranslation ? null : trans,
                 idx < _lines.Count - 1 ? _lines[idx + 1].Text : null,
                 _lines[idx].WordTimings,
-                (pos - _lines[idx].Time).TotalMilliseconds);
+                (lyricPos - _lines[idx].Time).TotalMilliseconds);
 
             // romaji
             if (_settings.ShowRomaji && HasJapanese(text))
