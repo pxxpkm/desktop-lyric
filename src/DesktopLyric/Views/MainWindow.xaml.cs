@@ -262,4 +262,41 @@ public partial class MainWindow : Window
             _overlay = null;
         }
     }
+
+    private void ExportLrc_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lines.Count == 0)
+        {
+            MessageBox.Show("no lyrics loaded", "export");
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "LRC files|*.lrc",
+            FileName = $"{_lastTitle}.lrc"
+        };
+
+        if (dlg.ShowDialog() == true)
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"[ti:{_lastTitle}]");
+                sb.AppendLine("[by:desktop-lyric]");
+                sb.AppendLine();
+                foreach (var line in _lines)
+                {
+                    var t = line.Time;
+                    sb.AppendLine($"[{t.Minutes:D2}:{t.Seconds:D2}.{t.Milliseconds / 10:D2}]{line.Text}");
+                }
+                System.IO.File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
+                MessageBox.Show($"saved {_lines.Count} lines", "export");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("export failed: " + ex.Message, "error");
+            }
+        }
+    }
 }

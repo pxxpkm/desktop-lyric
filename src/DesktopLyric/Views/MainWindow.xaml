@@ -54,5 +54,10 @@
                 HorizontalAlignment="Left" Margin="24,0,0,12"
                 Background="#222" Foreground="#888" BorderThickness="0"
                 Padding="10,4" FontSize="10" Cursor="Hand"/>
+
+        <Button Grid.Row="2" Content="export lrc" Click="ExportLrc_Click"
+                HorizontalAlignment="Center" Margin="0,0,0,12"
+                Background="#222" Foreground="#888" BorderThickness="0"
+                Padding="10,4" FontSize="10" Cursor="Hand"/>
     </Grid>
 </Window>
