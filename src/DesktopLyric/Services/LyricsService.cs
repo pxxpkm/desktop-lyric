@@ -16,7 +16,7 @@ public class LyricsService
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
     }
 
-    public async Task<List<LrcLine>?> SearchAsync(string title, string artist)
+    public async Task<List<LrcLine>?> SearchAsync(string title, string artist, TimeSpan? trackDuration = null)
     {
         var gen = ++_searchGen;
 
@@ -30,7 +30,16 @@ public class LyricsService
         var results = await Task.WhenAll(tasks);
         if (gen != _searchGen) return null;
 
-        var result = results.FirstOrDefault(r => r != null && r.Count > 0);
+        // if we have track duration, score each result by how close its last line is
+        List<LrcLine>? result;
+        if (trackDuration is { TotalSeconds: >= 20 } dur)
+        {
+            result = PickByDuration(results, dur);
+        }
+        else
+        {
+            result = results.FirstOrDefault(r => r != null && r.Count > 0);
+        }
 
         // retry with cleaned title
         if (result == null || result.Count == 0)
@@ -54,6 +63,33 @@ public class LyricsService
         }
 
         return result;
+    }
+
+    private static List<LrcLine>? PickByDuration(List<LrcLine>?[] results, TimeSpan trackDur)
+    {
+        var valid = results.Where(r => r != null && r.Count > 0).ToList();
+        if (valid.Count == 0) return null;
+        if (valid.Count == 1) return valid[0];
+
+        // score: how close is last lyric line to track duration
+        var scored = valid.Select(r =>
+        {
+            var lastSec = r!.Where(l => !string.IsNullOrWhiteSpace(l.Text))
+                .Max(l => l.Time.TotalSeconds);
+            var ratio = lastSec / trackDur.TotalSeconds;
+            // ideal: 0.88 ~ 1.03
+            double score = ratio switch
+            {
+                > 1.14 => -100,
+                > 1.05 => -40,
+                >= 0.88 and <= 1.03 => 100,
+                >= 0.75 => 50,
+                _ => -20
+            };
+            return (lines: r!, score);
+        }).OrderByDescending(x => x.score).ToList();
+
+        return scored[0].lines;
     }
 
     public void Cancel() => _searchGen++;

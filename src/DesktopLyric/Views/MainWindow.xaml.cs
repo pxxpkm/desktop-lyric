@@ -112,7 +112,7 @@ public partial class MainWindow : Window
                     TxtPrev.Text = "";
                     TxtNext.Text = "";
 
-                    var result = await _lyrics.SearchAsync(title, artist);
+                    var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
                     if (result != null && result.Count > 0)
                     {
                         _lines = result;
@@ -246,6 +246,18 @@ public partial class MainWindow : Window
             if ((c >= 0x3040 && c <= 0x309F) || (c >= 0x30A0 && c <= 0x30FF) ||
                 (c >= 0x4E00 && c <= 0x9FFF)) return true;
         return false;
+    }
+
+    private TimeSpan? GetTrackDuration()
+    {
+        if (_session == null) return null;
+        try
+        {
+            var tl = _session.GetTimelineProperties();
+            var dur = tl.EndTime - tl.StartTime;
+            return dur >= TimeSpan.FromSeconds(12) ? dur : null;
+        }
+        catch { return null; }
     }
 
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)
