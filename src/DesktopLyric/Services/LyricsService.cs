@@ -129,6 +129,7 @@ public class LyricsService
 
             var lyrics = ParseLrc(lrcStr);
             if (lyrics.Count == 0) return null;
+            if (IsInstrumentalPlaceholder(lyrics)) return null;
 
             // try merge yrc word timings
             if (lDoc.RootElement.TryGetProperty("yrc", out var yrcRoot) &&
@@ -440,6 +441,20 @@ public class LyricsService
             if (match != null && Math.Abs((match.Time - t.Time).TotalMilliseconds) < 500)
                 match.TranslatedText = t.Text;
         }
+    }
+
+    /// <summary>netease/qq sometimes return "纯音乐，请欣赏" as lyrics for instrumentals</summary>
+    private static bool IsInstrumentalPlaceholder(List<LrcLine> lyrics)
+    {
+        var meaningful = lyrics.Where(l => !string.IsNullOrWhiteSpace(l.Text)).ToList();
+        if (meaningful.Count == 0) return false;
+        return meaningful.All(l =>
+        {
+            var s = l.Text.Replace(" ", "");
+            return s.Contains("纯音乐") || s.Contains("純音樂") ||
+                   s.Contains("请欣赏") || s.Contains("請欣賞") ||
+                   s.Contains("没有歌词") || s.Contains("沒有歌詞");
+        });
     }
 
     private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d{2,3})\](.*)");
