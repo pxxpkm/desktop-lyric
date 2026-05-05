@@ -266,6 +266,7 @@ public partial class MainWindow : Window
         {
             _overlay = new OverlayWindow();
             _overlay.Opacity = _settings.OverlayOpacity / 100.0;
+            _overlay.Closed += (_, _) => _overlay = null;
             _overlay.Show();
         }
         else
