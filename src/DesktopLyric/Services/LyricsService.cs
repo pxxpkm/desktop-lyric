@@ -311,6 +311,10 @@ public class LyricsService
             !string.IsNullOrWhiteSpace(l.Text) && string.IsNullOrEmpty(l.TranslatedText)).ToList();
         if (toTr.Count == 0) return;
 
+        // skip if lyrics are already chinese
+        var sample = string.Join("", toTr.Take(8).Select(l => l.Text));
+        if (LooksLikeChinese(sample)) return;
+
         for (int i = 0; i < toTr.Count; i += 10)
         {
             if (gen != _searchGen) return;
@@ -455,6 +459,18 @@ public class LyricsService
                    s.Contains("请欣赏") || s.Contains("請欣賞") ||
                    s.Contains("没有歌词") || s.Contains("沒有歌詞");
         });
+    }
+
+    private static bool LooksLikeChinese(string text)
+    {
+        int cjk = 0, total = 0;
+        foreach (var c in text)
+        {
+            if (char.IsWhiteSpace(c) || char.IsPunctuation(c)) continue;
+            total++;
+            if (c >= 0x4E00 && c <= 0x9FFF) cjk++;
+        }
+        return total > 0 && (double)cjk / total > 0.3;
     }
 
     private static readonly Regex LrcRegex = new(@"\[(\d+):(\d+)\.(\d{2,3})\](.*)");
