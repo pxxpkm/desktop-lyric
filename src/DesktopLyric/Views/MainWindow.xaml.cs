@@ -260,6 +260,12 @@ public partial class MainWindow : Window
         catch { return null; }
     }
 
+    private void Window_Drag(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == System.Windows.Input.MouseButton.Left)
+            DragMove();
+    }
+
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)
     {
         if (_overlay == null || !_overlay.IsVisible)

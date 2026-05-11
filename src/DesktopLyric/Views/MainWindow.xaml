@@ -4,7 +4,10 @@
         Title="Desktop Lyric"
         Height="500" Width="520"
         WindowStartupLocation="CenterScreen"
-        Background="#1a1a2e">
+        Background="#1a1a2e"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        MouseLeftButtonDown="Window_Drag">
 
     <Grid>
         <Grid.RowDefinitions>
