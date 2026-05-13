@@ -20,6 +20,7 @@ public class LrcParseTests
     [Fact]
     public void handles_3_digit_milliseconds()
     {
+        // yoasobi - idol has these
         var lrc = "[01:05.123]three digits\n[01:10.456]another";
         var lines = LyricsService.ParseLrc(lrc);
 

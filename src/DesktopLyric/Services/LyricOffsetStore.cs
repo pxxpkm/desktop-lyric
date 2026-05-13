@@ -13,6 +13,7 @@ public static class LyricOffsetStore
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "DesktopLyric", "offsets.json");
 
+    // some songs are consistently off by a few hundred ms, this remembers it
     private static Dictionary<string, int>? _cache;
     private static readonly object _lock = new();
 

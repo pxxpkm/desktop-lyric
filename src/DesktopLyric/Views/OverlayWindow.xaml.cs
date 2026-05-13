@@ -11,6 +11,8 @@ public partial class OverlayWindow : Window
     public OverlayWindow()
     {
         InitializeComponent();
+        // topmost + no taskbar icon = always visible but not annoying
+        // like those karaoke bars in mong kok lol
     }
 
     public void UpdateLyrics(string current, string? translated, string? next = null,

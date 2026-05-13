@@ -36,4 +36,14 @@ public class S2TConverterTests
         Assert.Equal("", S2TConverter.Convert(""));
         Assert.Null(S2TConverter.Convert(null!));
     }
+
+    [Fact]
+    public void jay_chou_lyrics_convert_correctly()
+    {
+        // 七里香 chorus
+        var input = "雨下整夜 我的爱溢出就像雨水";
+        var result = S2TConverter.Convert(input);
+        Assert.Contains("愛", result);
+        Assert.Contains("溢", result); // this one stays the same
+    }
 }

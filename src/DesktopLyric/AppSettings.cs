@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DesktopLyric;
 
@@ -9,9 +10,9 @@ public class AppSettings
     public bool HideTranslation { get; set; } = false;
     public bool ForceTraditional { get; set; } = false;
     public bool ShowRomaji { get; set; } = false;
-    public int GlobalOffsetMs { get; set; } = 0;
+    public int GlobalOffsetMs { get; set; } = 0; // negative = lyrics show earlier
     public double OverlayOpacity { get; set; } = 85;
-    public string AccentColor { get; set; } = "#00d4ff";
+    public string AccentColor { get; set; } = "#00d4ff"; // might add color picker later
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

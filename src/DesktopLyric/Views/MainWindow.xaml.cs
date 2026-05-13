@@ -14,19 +14,20 @@ public partial class MainWindow : Window
     private DispatcherTimer _syncTimer;
 
     private readonly LyricsService _lyrics = new();
-    private AppSettings _settings;
     private static readonly System.Net.Http.HttpClient _romajiHttp = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     private string _lastTitle = "";
     private List<LrcLine> _lines = new();
     private string _lastRomajiInput = "";
-    private string _lastRomajiOutput = "";
+    private string _lastRomajiOutput = ""; // cache so we don't hit google every 100ms
 
-    // time tracking
+    // poll every 2s for track changes
+    // smtc events exist but they're unreliable on some players
     private readonly Stopwatch _sw = new();
     private TimeSpan _basePos = TimeSpan.Zero;
     private bool _isPlaying;
     private OverlayWindow? _overlay;
+    private AppSettings _settings;
 
     public MainWindow()
     {
@@ -145,7 +146,7 @@ public partial class MainWindow : Window
 
     private void SyncLyrics()
     {
-        if (_lines.Count == 0 || !_isPlaying) return;
+        if (_lines == null || _lines.Count == 0 || !_isPlaying) return;
 
         var pos = _basePos + _sw.Elapsed;
         TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";

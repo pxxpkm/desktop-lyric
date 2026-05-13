@@ -302,6 +302,11 @@ public class LyricsService
             }
             return null;
         }
+        catch (HttpRequestException)
+        {
+            // lrclib is sometimes down, not a big deal
+            return null;
+        }
         catch { return null; }
     }
 
@@ -315,6 +320,7 @@ public class LyricsService
         var sample = string.Join("", toTr.Take(8).Select(l => l.Text));
         if (LooksLikeChinese(sample)) return;
 
+        // batch translate, 10 lines at a time so google doesn't get mad
         for (int i = 0; i < toTr.Count; i += 10)
         {
             if (gen != _searchGen) return;
@@ -501,6 +507,19 @@ public class LyricsService
             }
         }
         return lines.OrderBy(l => l.Time).ToList();
+    }
+
+    // wrote this thinking I'd need it for plain text lyrics but never used it
+    public static List<LrcLine> ParsePlain(string text)
+    {
+        var lines = new List<LrcLine>();
+        foreach (var line in text.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (!string.IsNullOrEmpty(trimmed))
+                lines.Add(new LrcLine(TimeSpan.Zero, trimmed));
+        }
+        return lines;
     }
 }
 

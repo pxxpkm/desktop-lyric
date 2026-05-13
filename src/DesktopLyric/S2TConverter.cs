@@ -55,6 +55,7 @@ public static class S2TConverter
         A('国','國'); A('书','書'); A('语','語'); A('话','話');
         A('请','請'); A('谁','誰'); A('亲','親'); A('轻','輕');
         A('伤','傷'); A('声','聲'); A('胜','勝'); A('师','師');
+        // TODO: there's probably hundreds more, add as I find them
 
         return m;
     }
