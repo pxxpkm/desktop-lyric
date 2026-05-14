@@ -118,6 +118,7 @@ public partial class MainWindow : Window
 
                 // load album art
                 _ = LoadAlbumArt(props);
+                _overlay?.SetTrackInfo(title, artist);
 
                 if (title != _lastTitle)
                 {
@@ -333,6 +334,7 @@ public partial class MainWindow : Window
         {
             _overlay = new OverlayWindow();
             _overlay.Opacity = _settings.OverlayOpacity / 100.0;
+            _overlay.SetTrackInfo(_lastTitle, TxtArtist.Text);
             _overlay.Closed += (_, _) => _overlay = null;
             _overlay.Show();
         }
