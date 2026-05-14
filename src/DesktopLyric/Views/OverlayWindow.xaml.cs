@@ -17,7 +17,17 @@ public partial class OverlayWindow : Window
     {
         InitializeComponent();
         _settings = AppSettings.Load();
-        // like those karaoke bars in mong kok lol
+        ApplyAccentColor();
+    }
+
+    private void ApplyAccentColor()
+    {
+        try
+        {
+            var c = (Color)ColorConverter.ConvertFromString(_settings.AccentColor);
+            OvCurrent.Foreground = new SolidColorBrush(c);
+        }
+        catch { }
     }
 
     public void SetTrackInfo(string title, string artist)
