@@ -1,7 +1,10 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Windows.Media.Control;
+using Windows.Storage.Streams;
 using DesktopLyric.Services;
 
 namespace DesktopLyric.Views;
@@ -21,8 +24,7 @@ public partial class MainWindow : Window
     private string _lastRomajiInput = "";
     private string _lastRomajiOutput = ""; // cache so we don't hit google every 100ms
 
-    // poll every 2s for track changes
-    // smtc events exist but they're unreliable on some players
+    // smtc events exist but they're unreliable on some players, so poll
     private readonly Stopwatch _sw = new();
     private TimeSpan _basePos = TimeSpan.Zero;
     private bool _isPlaying;
@@ -48,6 +50,12 @@ public partial class MainWindow : Window
     {
         TxtCurrent.FontWeight = _settings.BoldLyrics
             ? FontWeights.Bold : FontWeights.Normal;
+        try
+        {
+            TxtCurrent.Foreground = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(_settings.AccentColor));
+        }
+        catch { }
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -59,14 +67,16 @@ public partial class MainWindow : Window
 
             if (_session != null)
             {
-                TxtStatus.Text = "connected: " + (_session.SourceAppUserModelId ?? "?");
+                TxtStatus.Text = "connected";
+                StatusDot.Fill = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
                 PollNowPlaying();
                 _pollTimer.Start();
                 _syncTimer.Start();
             }
             else
             {
-                TxtStatus.Text = "no media session";
+                TxtStatus.Text = "no media session — play something";
             }
 
             _mgr.CurrentSessionChanged += (_, _) =>
@@ -76,7 +86,9 @@ public partial class MainWindow : Window
                     _session = _mgr.GetCurrentSession();
                     if (_session != null)
                     {
-                        TxtStatus.Text = "connected: " + (_session.SourceAppUserModelId ?? "?");
+                        TxtStatus.Text = "connected";
+                        StatusDot.Fill = new System.Windows.Media.SolidColorBrush(
+                            System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
                         _pollTimer.Start();
                         _syncTimer.Start();
                     }
@@ -103,6 +115,9 @@ public partial class MainWindow : Window
             {
                 TxtTitle.Text = title;
                 TxtArtist.Text = artist;
+
+                // load album art
+                _ = LoadAlbumArt(props);
 
                 if (title != _lastTitle)
                 {
@@ -144,6 +159,28 @@ public partial class MainWindow : Window
         catch { }
     }
 
+    private async Task LoadAlbumArt(GlobalSystemMediaTransportControlsSessionMediaProperties props)
+    {
+        try
+        {
+            var thumb = props.Thumbnail;
+            if (thumb == null) { AlbumArt.Source = null; return; }
+            using var stream = await thumb.OpenReadAsync();
+            using var ms = new MemoryStream();
+            using var inp = stream.AsStreamForRead();
+            await inp.CopyToAsync(ms);
+            ms.Position = 0;
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.StreamSource = ms;
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            bmp.Freeze();
+            Dispatcher.BeginInvoke(() => AlbumArt.Source = bmp);
+        }
+        catch { }
+    }
+
     private void SyncLyrics()
     {
         if (_lines == null || _lines.Count == 0 || !_isPlaying) return;
@@ -152,7 +189,7 @@ public partial class MainWindow : Window
         TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
 
         // apply offset
-        var extra = Services.LyricOffsetStore.GetMs(_lastTitle, "");
+        var extra = LyricOffsetStore.GetMs(_lastTitle, "");
         var lyricPos = pos + TimeSpan.FromMilliseconds(_settings.GlobalOffsetMs + extra);
         if (lyricPos < TimeSpan.Zero) lyricPos = TimeSpan.Zero;
 
@@ -261,10 +298,33 @@ public partial class MainWindow : Window
         catch { return null; }
     }
 
+    // --- UI handlers ---
+
     private void Window_Drag(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (e.ChangedButton == System.Windows.Input.MouseButton.Left)
             DragMove();
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        // TODO: settings window, for now just open the json
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "DesktopLyric", "settings.json");
+        if (File.Exists(path))
+        {
+            try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+            catch { }
+        }
+        else
+        {
+            _settings.Save();
+            MessageBox.Show($"settings saved to:\n{path}\n\nedit and restart to apply", "settings");
+        }
     }
 
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)
@@ -310,7 +370,7 @@ public partial class MainWindow : Window
                     var t = line.Time;
                     sb.AppendLine($"[{t.Minutes:D2}:{t.Seconds:D2}.{t.Milliseconds / 10:D2}]{line.Text}");
                 }
-                System.IO.File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
+                File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
                 MessageBox.Show($"saved {_lines.Count} lines", "export");
             }
             catch (Exception ex)
