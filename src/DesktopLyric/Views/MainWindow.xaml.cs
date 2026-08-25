@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Windows.Media.Control;
@@ -21,6 +24,7 @@ public partial class MainWindow : Window
 
     private string _lastTitle = "";
     private string _lastArtist = "";
+    private int _trackOffsetMs;
     private List<LrcLine> _lines = new();
     private string _lastRomajiInput = "";
     private string _lastRomajiOutput = ""; // cache so we don't hit google every 100ms
@@ -29,7 +33,14 @@ public partial class MainWindow : Window
     // Polling that stale value used to rewind the interpolator every 2s.
     private readonly PlaybackClock _clock = new();
     private OverlayWindow? _overlay;
+    private FullscreenWindow? _fullscreen;
+    private ImageSource? _albumArt;
+    private bool _overlayHiddenForFullscreen;
     private AppSettings _settings;
+    private bool _forceClose;
+    private int _karaokeLineIdx = -1;
+    private List<KaraokeWordTiming>? _karaokeWords;
+    private List<KaraokeWordTiming>? _karaokeSrc;
 
     public MainWindow()
     {
@@ -38,10 +49,18 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
 
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _pollTimer.Tick += (_, _) => PollNowPlaying();
+        _pollTimer.Tick += (_, _) =>
+        {
+            try { PollNowPlaying(); }
+            catch (Exception ex) { ErrorLog.Write(ex); }
+        };
 
         _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-        _syncTimer.Tick += (_, _) => SyncLyrics();
+        _syncTimer.Tick += (_, _) =>
+        {
+            try { SyncLyrics(); }
+            catch (Exception ex) { ErrorLog.Write(ex); }
+        };
 
         ApplySettings();
         ApplyTradButton();
@@ -128,26 +147,40 @@ public partial class MainWindow : Window
                 // load album art
                 _ = LoadAlbumArt(props);
                 _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
+                _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
 
-                if (title != _lastTitle)
+                var titleChanged = title != _lastTitle;
+                var artistFilled = !titleChanged
+                    && string.IsNullOrEmpty(_lastArtist)
+                    && !string.IsNullOrEmpty(artist);
+                if (titleChanged || artistFilled)
                 {
                     _lastTitle = title;
                     _lastArtist = artist;
+                    LoadTrackOffset();
                     _lyrics.Cancel();
-                    TxtCurrent.Text = "searching...";
-                    TxtTrans.Text = "";
-                    TxtPrev.Text = "";
-                    TxtNext.Text = "";
+                    if (titleChanged)
+                    {
+                        TxtCurrent.Text = "searching...";
+                        TxtTrans.Text = "";
+                        TxtPrev.Text = "";
+                        TxtNext.Text = "";
+                    }
 
+                    var requestedTitle = title;
                     var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
-                    if (result != null && result.Count > 0)
+                    if (_lastTitle != requestedTitle) return;
+                    if (result == null) return; // cancelled (user picked another candidate, or a newer search)
+                    if (result.Count > 0)
                     {
                         _lines = result;
+                        ResetKaraokeCache();
                         TxtCurrent.Text = "♪";
                     }
                     else
                     {
                         _lines = new();
+                        ResetKaraokeCache();
                         TxtCurrent.Text = "no lyrics found";
                     }
                 }
@@ -209,7 +242,13 @@ public partial class MainWindow : Window
         try
         {
             var thumb = props.Thumbnail;
-            if (thumb == null) { AlbumArt.Source = null; return; }
+            if (thumb == null)
+            {
+                _albumArt = null;
+                AlbumArt.Source = null;
+                _fullscreen?.SetAlbumArt(null);
+                return;
+            }
             using var stream = await thumb.OpenReadAsync();
             using var ms = new MemoryStream();
             using var inp = stream.AsStreamForRead();
@@ -221,21 +260,43 @@ public partial class MainWindow : Window
             bmp.CacheOption = BitmapCacheOption.OnLoad;
             bmp.EndInit();
             bmp.Freeze();
-            Dispatcher.BeginInvoke(() => AlbumArt.Source = bmp);
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!IsLoaded) return;
+                _albumArt = bmp;
+                AlbumArt.Source = bmp;
+                if (WindowGuard.CanTouch(_fullscreen))
+                    _fullscreen!.SetAlbumArt(bmp);
+            });
         }
         catch { }
     }
 
+    private void SafeUpdateLyrics(string current, string? translated, string? next,
+        List<KaraokeWordTiming>? words, double elapsed)
+    {
+        try
+        {
+            if (WindowGuard.CanTouch(_overlay))
+                _overlay!.UpdateLyrics(current, translated, next, words, elapsed);
+            if (WindowGuard.CanTouch(_fullscreen))
+                _fullscreen!.UpdateLyrics(current, translated, next, words, elapsed);
+        }
+        catch (Exception ex) { ErrorLog.Write(ex); }
+    }
+
     private void SyncLyrics()
     {
-        if (_lines == null || _lines.Count == 0) return;
+        if (_lines == null || _lines.Count == 0)
+        {
+            SafeUpdateLyrics("", null, null, null, 0);
+            return;
+        }
 
         var pos = _clock.Position;
         TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
 
-        // apply offset
-        var extra = LyricOffsetStore.GetMs(_lastTitle, "");
-        var lyricPos = pos + TimeSpan.FromMilliseconds(_settings.GlobalOffsetMs + extra);
+        var lyricPos = pos + TimeSpan.FromMilliseconds(_settings.GlobalOffsetMs + _trackOffsetMs);
         if (lyricPos < TimeSpan.Zero) lyricPos = TimeSpan.Zero;
 
         int idx = -1;
@@ -244,13 +305,24 @@ public partial class MainWindow : Window
             if (_lines[i].Time <= lyricPos) { idx = i; break; }
         }
 
+        if (idx < 0)
+        {
+            var first = ToDisplay(_lines[0].Text);
+            TxtCurrent.Text = "";
+            TxtTrans.Text = "";
+            TxtPrev.Text = "";
+            TxtNext.Text = first;
+            SafeUpdateLyrics("", null, first, null, 0);
+            return;
+        }
+
         if (idx >= 0)
         {
             var text = ToDisplay(_lines[idx].Text);
             var trans = ToDisplay(_lines[idx].TranslatedText);
             var prev = idx > 0 ? ToDisplay(_lines[idx - 1].Text) : "";
             var next = idx < _lines.Count - 1 ? ToDisplay(_lines[idx + 1].Text) : "";
-            var words = ToDisplay(_lines[idx].WordTimings);
+            var words = KaraokeWordsForLine(idx);
 
             TxtCurrent.Text = text;
             TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
@@ -258,11 +330,13 @@ public partial class MainWindow : Window
             TxtNext.Text = next;
             ApplyLineFonts(text, trans, prev, next);
 
-            _overlay?.UpdateLyrics(text,
+            var elapsed = (lyricPos - _lines[idx].Time).TotalMilliseconds;
+            if (elapsed < 0) elapsed = 0;
+            SafeUpdateLyrics(text,
                 _settings.HideTranslation ? null : trans,
                 string.IsNullOrEmpty(next) ? null : next,
                 words,
-                (lyricPos - _lines[idx].Time).TotalMilliseconds);
+                elapsed);
 
             // romaji
             if (_settings.ShowRomaji && LyricFonts.HasKana(text))
@@ -327,8 +401,10 @@ public partial class MainWindow : Window
         var custom = _settings.FontFamily ?? "";
         TxtCurrent.SettingsFont = custom;
         TxtTrans.SettingsFont = custom;
-        TxtCurrent.FontSize = LyricFonts.LineSize(text, current: true);
-        TxtTrans.FontSize = LyricFonts.LineSize(trans, current: false);
+        TxtCurrent.FontSize = Math.Clamp(
+            LyricFonts.LineSize(text, current: true) * _settings.OverlayOriginalScale, 10, 48);
+        TxtTrans.FontSize = Math.Clamp(
+            LyricFonts.LineSize(trans, current: false) * _settings.OverlayTranslationScale, 10, 48);
         TxtPrev.FontFamily = LyricFonts.HasKana(prev) ? LyricFonts.Japanese : LyricFonts.FromSettings(custom);
         TxtNext.FontFamily = LyricFonts.HasKana(next) ? LyricFonts.Japanese : LyricFonts.FromSettings(custom);
     }
@@ -336,14 +412,31 @@ public partial class MainWindow : Window
     private string ToDisplay(string? text)
     {
         if (string.IsNullOrEmpty(text)) return text ?? "";
-        if (!_settings.ForceTraditional || LyricFonts.HasKana(text)) return text;
+        if (!_settings.ForceTraditional) return text;
         return S2TConverter.Convert(text);
+    }
+
+    private void ResetKaraokeCache()
+    {
+        _karaokeLineIdx = -1;
+        _karaokeWords = null;
+        _karaokeSrc = null;
+    }
+
+    private List<KaraokeWordTiming>? KaraokeWordsForLine(int idx)
+    {
+        var src = _lines[idx].WordTimings;
+        if (idx == _karaokeLineIdx && ReferenceEquals(src, _karaokeSrc))
+            return _karaokeWords;
+        _karaokeLineIdx = idx;
+        _karaokeSrc = src;
+        _karaokeWords = ToDisplay(src);
+        return _karaokeWords;
     }
 
     private List<KaraokeWordTiming>? ToDisplay(List<KaraokeWordTiming>? words)
     {
         if (words == null || words.Count == 0 || !_settings.ForceTraditional) return words;
-        if (words.Any(w => LyricFonts.HasKana(w.Text))) return words;
         var converted = new List<KaraokeWordTiming>(words.Count);
         foreach (var w in words)
             converted.Add(w with { Text = S2TConverter.Convert(w.Text) });
@@ -366,19 +459,47 @@ public partial class MainWindow : Window
 
     private void Window_Drag(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == System.Windows.Input.MouseButton.Left)
-            DragMove();
+        if (e.ChangedButton != System.Windows.Input.MouseButton.Left) return;
+        try { DragMove(); } catch { }
     }
 
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
-    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+    private void Close_Click(object sender, RoutedEventArgs e) => HideToOverlay();
 
-    protected override void OnClosed(EventArgs e)
+    protected override void OnClosing(CancelEventArgs e)
     {
+        if (!_forceClose)
+        {
+            e.Cancel = true;
+            HideToOverlay();
+            return;
+        }
         BindSession(null);
         _pollTimer.Stop();
         _syncTimer.Stop();
-        base.OnClosed(e);
+        base.OnClosing(e);
+    }
+
+    private void HideToOverlay()
+    {
+        if (_fullscreen is not { IsVisible: true })
+            ShowOverlay();
+        ShowInTaskbar = false;
+        Hide();
+    }
+
+    public void RestoreFromOverlay()
+    {
+        ShowInTaskbar = true;
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    public void QuitApp()
+    {
+        _forceClose = true;
+        Application.Current.Shutdown();
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)
@@ -400,23 +521,58 @@ public partial class MainWindow : Window
     }
 
     private async void PickSong_Click(object sender, RoutedEventArgs e)
+        => await PickSongAsync(this);
+
+    private async Task PickSongAsync(Window? owner)
     {
-        var win = new PickSongWindow(_lyrics, _lastTitle, _lastArtist) { Owner = this };
+        var win = new PickSongWindow(_lyrics, _lastTitle, _lastArtist, GetTrackDuration());
+        if (owner is { IsVisible: true })
+            win.Owner = owner;
+        else if (_overlay is { IsVisible: true })
+            win.Owner = _overlay;
+        win.Topmost = _overlay is { IsVisible: true } || _fullscreen is { IsVisible: true };
         if (win.ShowDialog() != true || win.Chosen == null) return;
         TxtCurrent.Text = "loading...";
+        if (win.Remember)
+        {
+            // Save before fetch so a cancelled download still remembers the pick.
+            LyricChoiceStore.Set(_lastTitle, _lastArtist, win.Chosen.Key);
+            LyricChoiceStore.Set(win.SearchTitle, win.SearchArtist, win.Chosen.Key);
+            LyricChoiceStore.Set(win.Chosen.Title, win.Chosen.Artist, win.Chosen.Key);
+        }
         var lines = await _lyrics.FetchAsync(win.Chosen);
-        if (lines is { Count: > 0 })
+        if (lines == null || lines.Count == 0)
+        {
+            // Fetch raced with auto-search; the pin is saved, so retry via that.
+            lines = await _lyrics.SearchAsync(_lastTitle, _lastArtist, GetTrackDuration());
+        }
+        if (lines == null) return;
+        if (lines.Count > 0)
         {
             _lines = lines;
+            ResetKaraokeCache();
             TxtCurrent.Text = "♪";
-            if (win.Remember)
-                LyricChoiceStore.Set(_lastTitle, _lastArtist, win.Chosen.Key);
             TxtStatus.Text = $"歌詞：{win.Chosen.Title} · {win.Chosen.Source}";
         }
         else
         {
             TxtCurrent.Text = "no lyrics found";
-            TxtStatus.Text = "呢首冇歌詞";
+            TxtStatus.Text = win.Remember ? "已記住，但呢首暫時撈唔到歌詞" : "呢首冇歌詞";
+        }
+    }
+
+    private async void SavedSongs_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new SavedSongsWindow(_lyrics) { Owner = this };
+        win.ShowDialog();
+        if (!win.Dirty || string.IsNullOrEmpty(_lastTitle)) return;
+        var result = await _lyrics.SearchAsync(_lastTitle, _lastArtist, GetTrackDuration());
+        if (result == null) return;
+        if (result.Count > 0)
+        {
+            _lines = result;
+            ResetKaraokeCache();
+            TxtCurrent.Text = "♪";
         }
     }
 
@@ -428,6 +584,7 @@ public partial class MainWindow : Window
         FontFamily = LyricFonts.FromSettings(_settings.FontFamily);
         ApplyLineFonts(TxtCurrent.Text, TxtTrans.Text, TxtPrev.Text, TxtNext.Text);
         _overlay?.RefreshFonts();
+        _fullscreen?.RefreshFonts();
     }
 
     private void ApplyFontButton()
@@ -441,6 +598,10 @@ public partial class MainWindow : Window
         _settings.Save();
         ApplyTradButton();
         _overlay?.RefreshTradButton();
+        _fullscreen?.RefreshTradButton();
+        _karaokeLineIdx = -1;
+        _karaokeWords = null;
+        _karaokeSrc = null;
     }
 
     private void ApplyTradButton()
@@ -453,13 +614,102 @@ public partial class MainWindow : Window
 
     private void ShowOverlay()
     {
-        if (_overlay != null && _overlay.IsVisible) return;
+        if (_overlay != null)
+        {
+            if (!_overlay.IsVisible) _overlay.Show();
+            return;
+        }
         _overlay = new OverlayWindow(_settings);
         _overlay.Opacity = _settings.OverlayOpacity / 100.0;
         _overlay.SetTrackInfo(ToDisplay(_lastTitle), ToDisplay(TxtArtist.Text));
         _overlay.TraditionalToggled += ApplyTradButton;
+        _overlay.OffsetNudged += NudgeOffset;
+        _overlay.PickSongRequested += () => _ = PickSongAsync(_overlay);
+        _overlay.FullscreenRequested += ShowFullscreen;
+        _overlay.SetOffsetLabel(_trackOffsetMs);
         _overlay.Closed += (_, _) => _overlay = null;
         _overlay.Show();
+    }
+
+    private void ShowFullscreen()
+    {
+        if (_fullscreen is { IsVisible: true })
+        {
+            _fullscreen.Activate();
+            return;
+        }
+        if (_overlay is { IsVisible: true })
+        {
+            _overlayHiddenForFullscreen = true;
+            _overlay.Hide();
+        }
+        else _overlayHiddenForFullscreen = false;
+
+        _fullscreen = new FullscreenWindow(_settings);
+        _fullscreen.TraditionalToggled += ApplyTradButton;
+        _fullscreen.PickSongRequested += () => _ = PickSongAsync(_fullscreen);
+        _fullscreen.SetTrackInfo(ToDisplay(_lastTitle), ToDisplay(TxtArtist.Text));
+        _fullscreen.SetAlbumArt(_albumArt);
+        _fullscreen.Closed += (_, _) =>
+        {
+            _fullscreen = null;
+            if (_overlayHiddenForFullscreen)
+            {
+                _overlayHiddenForFullscreen = false;
+                ShowOverlay();
+            }
+        };
+        _fullscreen.Show();
+        SyncLyrics();
+    }
+
+    private void Fullscreen_Click(object sender, RoutedEventArgs e) => ShowFullscreen();
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F11)
+        {
+            e.Handled = true;
+            if (_fullscreen is { IsVisible: true }) _fullscreen.Close();
+            else ShowFullscreen();
+        }
+    }
+
+    private void LoadTrackOffset()
+    {
+        _trackOffsetMs = LyricOffsetStore.GetMs(_lastTitle, _lastArtist);
+        RefreshOffsetUi();
+    }
+
+    private void OffsetEarlier_Click(object sender, RoutedEventArgs e)
+        => NudgeOffset(LyricOffsetStore.StepMs);
+
+    private void OffsetLater_Click(object sender, RoutedEventArgs e)
+        => NudgeOffset(-LyricOffsetStore.StepMs);
+
+    private void OffsetReset_Click(object sender, RoutedEventArgs e)
+        => NudgeOffset(int.MinValue);
+
+    private void NudgeOffset(int delta)
+    {
+        if (string.IsNullOrEmpty(_lastTitle)) return;
+        _trackOffsetMs = delta == int.MinValue
+            ? 0
+            : Math.Clamp(_trackOffsetMs + delta, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
+        LyricOffsetStore.SetMs(_lastTitle, _lastArtist, _trackOffsetMs);
+        RefreshOffsetUi();
+        SyncLyrics();
+    }
+
+    private void RefreshOffsetUi()
+    {
+        var label = LyricOffsetStore.Format(_trackOffsetMs);
+        BtnOffset.Content = label;
+        BtnOffset.Foreground = new System.Windows.Media.SolidColorBrush(
+            _trackOffsetMs == 0
+                ? System.Windows.Media.Color.FromRgb(0xa0, 0xb0, 0xc0)
+                : System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
+        _overlay?.SetOffsetLabel(_trackOffsetMs);
     }
 
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)

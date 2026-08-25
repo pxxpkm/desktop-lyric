@@ -17,6 +17,7 @@ public partial class App : Application
             return;
         }
         FontLoader.Load();
+        ErrorLog.Attach(this);
         base.OnStartup(e);
     }
 

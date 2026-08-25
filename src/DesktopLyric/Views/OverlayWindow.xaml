@@ -71,12 +71,12 @@
                 </Grid.RowDefinitions>
                 <local:LyricLineView Grid.Row="0" x:Name="OvCurrent" FontSize="24" IsCurrent="True"
                                      ClipToBounds="True" Margin="0,0,0,4"/>
-                <local:LyricLineView Grid.Row="1" x:Name="OvTrans" FontSize="22"
+                <local:LyricLineView Grid.Row="1" x:Name="OvTrans" FontSize="16"
                                      ClipToBounds="True"
-                                     Foreground="#C8DDE8" MinHeight="28" Margin="0,0,0,2"/>
+                                     Foreground="#C8DDE8" MinHeight="0" Margin="0,0,0,2"/>
                 <local:LyricLineView Grid.Row="2" x:Name="OvNext" FontSize="12"
                                      ClipToBounds="True"
-                                     Foreground="#70A0B0C0" MinHeight="16"/>
+                                     Foreground="#70A0B0C0" MinHeight="0"/>
             </Grid>
 
             <!-- control bar (hidden until hover) -->
@@ -84,11 +84,48 @@
                     CornerRadius="10" Background="#10FFFFFF" Margin="8,0,8,4"
                     Padding="8,3">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="−" Click="OnOffsetLater" Style="{x:Null}"
+                            ToolTip="歌詞早咗：延遲顯示（呢首歌會記住）"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="13" Cursor="Hand"
+                            Width="24" Height="24" Margin="0,0,0,0"/>
+                    <Button x:Name="BtnOffset" Content="±0.00s" Click="OnOffsetReset" Style="{x:Null}"
+                            ToolTip="重設呢首歌嘅時機微調"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="11" Cursor="Hand"
+                            MinWidth="52" Height="24" Margin="0,0,0,0" Padding="2,0"/>
+                    <Button Content="＋" Click="OnOffsetEarlier" Style="{x:Null}"
+                            ToolTip="歌詞遲咗：提早顯示（呢首歌會記住）"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="13" Cursor="Hand"
+                            Width="24" Height="24" Margin="0,0,6,0"/>
+                    <Button Content="原−" Click="OnOriginalSmaller" Style="{x:Null}"
+                            ToolTip="原文細啲（日文行）"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="10" Cursor="Hand"
+                            Width="28" Height="24" Margin="0,0,0,0"/>
+                    <Button Content="原+" Click="OnOriginalLarger" Style="{x:Null}"
+                            ToolTip="原文大啲（日文行）"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="10" Cursor="Hand"
+                            Width="28" Height="24" Margin="0,0,4,0"/>
+                    <Button Content="譯−" Click="OnTransSmaller" Style="{x:Null}"
+                            ToolTip="譯文細啲（中文行）"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="10" Cursor="Hand"
+                            Width="28" Height="24" Margin="0,0,0,0"/>
+                    <Button Content="譯+" Click="OnTransLarger" Style="{x:Null}"
+                            ToolTip="譯文大啲（中文行）"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="10" Cursor="Hand"
+                            Width="28" Height="24" Margin="0,0,4,0"/>
                     <Button Content="A−" Click="OnFontSmaller" Style="{x:Null}"
+                            ToolTip="成個字幕窗細啲"
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="11" Cursor="Hand"
                             Width="28" Height="24" Margin="0,0,2,0"/>
                     <Button Content="A+" Click="OnFontLarger" Style="{x:Null}"
+                            ToolTip="成個字幕窗大啲"
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="11" Cursor="Hand"
                             Width="28" Height="24" Margin="0,0,2,0"/>
@@ -96,6 +133,26 @@
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="11" Cursor="Hand"
                             Width="28" Height="24" Margin="0,0,2,0"/>
+                    <Button x:Name="BtnTopmost" Content="頂" Click="OnToggleTopmost" Style="{x:Null}"
+                            ToolTip="置頂／取消置頂"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="11" Cursor="Hand"
+                            Width="24" Height="24" Margin="0,0,2,0"/>
+                    <Button Content="選" Click="OnPickSong" Style="{x:Null}"
+                            ToolTip="同名歌揀正確版本"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="11" Cursor="Hand"
+                            Width="24" Height="24" Margin="0,0,2,0"/>
+                    <Button Content="全" Click="OnFullscreen" Style="{x:Null}"
+                            ToolTip="全屏：專輯版面／全幕歌詞"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="11" Cursor="Hand"
+                            Width="24" Height="24" Margin="0,0,2,0"/>
+                    <Button Content="主" Click="OnShowMain" Style="{x:Null}"
+                            ToolTip="顯示主視窗"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="11" Cursor="Hand"
+                            Width="24" Height="24" Margin="0,0,2,0"/>
                     <Button Content="✕" Click="OnClose" Style="{x:Null}"
                             Background="Transparent" Foreground="#60FFFFFF"
                             BorderThickness="0" FontSize="10" Cursor="Hand"

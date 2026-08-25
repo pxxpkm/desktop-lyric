@@ -1,47 +1,98 @@
 using System.IO;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace DesktopLyric.Services;
 
 /// <summary>
-/// remembers per-track lyric offset (ms) so you don't have to adjust every time
+/// Per-track lyric timing offset in milliseconds, saved to offsets.json.
+/// Positive = show lyrics earlier; negative = later.
 /// </summary>
 public static class LyricOffsetStore
 {
-    private static readonly string StorePath = Path.Combine(
+    private static string _storePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "DesktopLyric", "offsets.json");
 
-    // some songs are consistently off by a few hundred ms, this remembers it
     private static Dictionary<string, int>? _cache;
     private static readonly object _lock = new();
 
-    private static string MakeKey(string? title, string? artist)
+    public const int StepMs = 50;
+    public const int MinMs = -10_000;
+    public const int MaxMs = 10_000;
+
+    internal static void ResetForTests(string storePath)
     {
-        static string Norm(string? s) =>
-            Regex.Replace((s ?? "").Trim().ToLowerInvariant(), @"\s+", " ");
-        return $"{Norm(artist)}|{Norm(title)}";
+        lock (_lock)
+        {
+            _storePath = storePath;
+            _cache = null;
+        }
     }
 
     public static int GetMs(string? title, string? artist)
     {
         var dict = LoadDict();
-        var key = MakeKey(title, artist);
-        return dict.TryGetValue(key, out var v) ? v : 0;
+        if (dict.Count == 0) return 0;
+
+        foreach (var key in LyricChoiceStore.FingerprintKeys(title, artist))
+        {
+            if (dict.TryGetValue(key, out var v)) return v;
+        }
+
+        var wantTitles = LyricChoiceStore.TitleKeys(title);
+        if (wantTitles.Count == 0) return 0;
+        int? unique = null;
+        var uniqueCount = 0;
+        foreach (var kv in dict)
+        {
+            var i = kv.Key.IndexOf('|');
+            var storedTitle = i < 0 ? kv.Key : kv.Key[(i + 1)..];
+            var storedTitles = LyricChoiceStore.TitleKeys(storedTitle);
+            if (!wantTitles.Any(w => storedTitles.Contains(w))) continue;
+            uniqueCount++;
+            unique = kv.Value;
+        }
+        return uniqueCount == 1 ? unique!.Value : 0;
     }
 
     public static void SetMs(string? title, string? artist, int ms)
     {
+        ms = Math.Clamp(ms, MinMs, MaxMs);
+        var keys = LyricChoiceStore.FingerprintKeys(title, artist);
+        if (keys.Count == 0) return;
         lock (_lock)
         {
             var dict = LoadDict();
-            var key = MakeKey(title, artist);
-            if (ms == 0) dict.Remove(key);
-            else dict[key] = ms;
+            var titles = LyricChoiceStore.TitleKeys(title);
+            foreach (var existing in dict.Keys.ToList())
+            {
+                if (keys.Contains(existing)) continue;
+                var i = existing.IndexOf('|');
+                var storedTitle = i < 0 ? existing : existing[(i + 1)..];
+                if (titles.Any(t => LyricChoiceStore.TitleKeys(storedTitle).Contains(t)))
+                    dict.Remove(existing);
+            }
+            foreach (var key in keys)
+            {
+                if (ms == 0) dict.Remove(key);
+                else dict[key] = ms;
+            }
             _cache = dict;
         }
         SaveDict();
+    }
+
+    public static int Nudge(string? title, string? artist, int deltaMs)
+    {
+        var next = Math.Clamp(GetMs(title, artist) + deltaMs, MinMs, MaxMs);
+        SetMs(title, artist, next);
+        return next;
+    }
+
+    public static string Format(int ms)
+    {
+        var sign = ms > 0 ? "+" : ms < 0 ? "−" : "±";
+        return $"{sign}{Math.Abs(ms) / 1000.0:0.00}s";
     }
 
     private static Dictionary<string, int> LoadDict()
@@ -51,10 +102,10 @@ public static class LyricOffsetStore
             if (_cache != null) return _cache;
             try
             {
-                if (File.Exists(StorePath))
+                if (File.Exists(_storePath))
                 {
-                    var json = File.ReadAllText(StorePath);
-                    _cache = JsonSerializer.Deserialize<Dictionary<string, int>>(json) ?? new();
+                    _cache = JsonSerializer.Deserialize<Dictionary<string, int>>(
+                        File.ReadAllText(_storePath)) ?? new();
                     return _cache;
                 }
             }
@@ -68,11 +119,10 @@ public static class LyricOffsetStore
     {
         try
         {
-            var dir = Path.GetDirectoryName(StorePath)!;
-            Directory.CreateDirectory(dir);
+            Directory.CreateDirectory(Path.GetDirectoryName(_storePath)!);
             Dictionary<string, int> snap;
             lock (_lock) { snap = new(_cache ?? new()); }
-            File.WriteAllText(StorePath, JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(_storePath, JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { }
     }

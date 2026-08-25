@@ -48,6 +48,29 @@ public class S2TConverterTests
     }
 
     [Fact]
+    public void overlay_sizes_leave_room_for_japanese_when_chinese_trans_is_large()
+    {
+        var s = LyricFonts.FitOverlaySizes(
+            area: 120,
+            hasTrans: true,
+            hasNext: true,
+            originalIsJapanese: true,
+            originalScale: 1.0,
+            translationScale: 1.8);
+        var used = s.CurrentFont * 1.28 + s.TransMaxHeight + s.NextMaxHeight;
+        Assert.True(used <= 120 + 0.5, $"used {used} > 120");
+        Assert.True(120 - s.TransMaxHeight - s.NextMaxHeight >= 120 * 0.37, "original row crushed");
+        Assert.True(s.TransFont > s.CurrentFont, "Chinese translation should be larger than JP original at default-ish scales");
+    }
+
+    [Fact]
+    public void japanese_line_kanji_piece_still_counts_as_japanese()
+    {
+        Assert.True(LyricFonts.IsJapaneseLine("駆", "夕暮れ駆け抜けた"));
+        Assert.False(LyricFonts.IsJapaneseLine("在黃昏中奔馳", "在黃昏中奔馳"));
+    }
+
+    [Fact]
     public void has_kana_detects_japanese_not_chinese()
     {
         Assert.True(LyricFonts.HasKana("君の知らない物語"));
@@ -61,5 +84,65 @@ public class S2TConverterTests
     {
         var result = S2TConverter.Convert("歌词颜帅无处");
         Assert.Equal("歌詞顏帥無處", result);
+    }
+
+    [Theory]
+    [InlineData("头发", "頭髮")]
+    [InlineData("发丝", "髮絲")]
+    [InlineData("发型", "髮型")]
+    [InlineData("里面", "裏面")]
+    [InlineData("这里", "這裏")]
+    [InlineData("心里", "心裏")]
+    [InlineData("什么", "什麼")]
+    [InlineData("怎么", "怎麼")]
+    [InlineData("那么", "那麼")]
+    [InlineData("这么", "這麼")]
+    [InlineData("干净", "乾淨")]
+    [InlineData("干杯", "乾杯")]
+    [InlineData("干活", "幹活")]
+    [InlineData("后面", "後面")]
+    [InlineData("落后", "落後")]
+    [InlineData("杰作", "傑作")]
+    [InlineData("忧郁", "憂鬱")]
+    [InlineData("云端", "雲端")]
+    [InlineData("一只猫", "一隻貓")]
+    [InlineData("伙伴", "夥伴")]
+    [InlineData("于是", "於是")]
+    [InlineData("剩余", "剩餘")]
+    [InlineData("发现", "發現")]
+    [InlineData("关系", "關係")]
+    public void converts_phrases_windows_lcmap_skips(string simplified, string traditional)
+    {
+        Assert.Equal(traditional, S2TConverter.Convert(simplified));
+    }
+
+    [Fact]
+    public void does_not_mangle_ambiguous_words()
+    {
+        Assert.Equal("皇后", S2TConverter.Convert("皇后"));
+        Assert.Equal("公里", S2TConverter.Convert("公里"));
+        Assert.Equal("只是", S2TConverter.Convert("只是"));
+    }
+
+    [Fact]
+    public void uses_hong_kong_variants()
+    {
+        Assert.Equal("為", S2TConverter.Convert("为"));
+        Assert.Equal("台灣", S2TConverter.Convert("台湾"));
+    }
+
+    [Fact]
+    public void leaves_japanese_lines_alone()
+    {
+        Assert.Equal("君の知らない物語", S2TConverter.Convert("君の知らない物語"));
+        Assert.Equal("夕暮れ 駆け抜けた", S2TConverter.Convert("夕暮れ 駆け抜けた"));
+    }
+
+    [Fact]
+    public void converts_chinese_karaoke_word_but_not_kana_word()
+    {
+        Assert.Equal("在", S2TConverter.Convert("在"));
+        Assert.Equal("黃昏", S2TConverter.Convert("黄昏"));
+        Assert.Equal("け", S2TConverter.Convert("け"));
     }
 }

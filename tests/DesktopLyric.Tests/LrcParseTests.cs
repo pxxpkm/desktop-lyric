@@ -57,6 +57,31 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void yrc_absolute_word_times_become_relative_to_line()
+    {
+        var yrc = "[14726,1200](14726,240,0)何(14966,240,0)か(15206,400,0)を";
+        var lines = LyricsService.ParseYrcLines(yrc);
+        Assert.Single(lines);
+        Assert.Equal(14726, lines[0].startMs);
+        Assert.Equal(3, lines[0].words.Count);
+        Assert.Equal(0, lines[0].words[0].StartMs);
+        Assert.Equal(240, lines[0].words[1].StartMs);
+        Assert.Equal(480, lines[0].words[2].StartMs);
+        Assert.Equal("何", lines[0].words[0].Text);
+    }
+
+    [Fact]
+    public void yrc_already_relative_word_times_stay_relative()
+    {
+        var yrc = "[14726,1200](0,240,0)何(240,240,0)か(480,400,0)を";
+        var lines = LyricsService.ParseYrcLines(yrc);
+        Assert.Single(lines);
+        Assert.Equal(0, lines[0].words[0].StartMs);
+        Assert.Equal(240, lines[0].words[1].StartMs);
+        Assert.Equal(480, lines[0].words[2].StartMs);
+    }
+
+    [Fact]
     public void parses_standard_lrc_timestamps()
     {
         var lrc = "[00:12.34]hello world\n[00:15.67]second line";

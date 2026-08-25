@@ -25,4 +25,10 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Dict\STCharacters.txt" />
+    <EmbeddedResource Include="Dict\STPhrases.txt" />
+    <EmbeddedResource Include="Dict\HKVariants.txt" />
+  </ItemGroup>
+
 </Project>

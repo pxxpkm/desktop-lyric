@@ -7,16 +7,20 @@ namespace DesktopLyric.Views;
 public partial class PickSongWindow : Window
 {
     private readonly LyricsService _lyrics;
+    private readonly TimeSpan? _trackDuration;
 
     public LyricCandidate? Chosen { get; private set; }
     public bool Remember => ChkRemember.IsChecked == true;
+    public string SearchTitle => TxtTitle.Text.Trim();
+    public string SearchArtist => TxtArtist.Text.Trim();
 
-    public PickSongWindow(LyricsService lyrics, string title, string artist)
+    public PickSongWindow(LyricsService lyrics, string title, string artist, TimeSpan? trackDuration = null)
     {
         InitializeComponent();
         _lyrics = lyrics;
-        TxtTitle.Text = title ?? "";
-        TxtArtist.Text = artist ?? "";
+        _trackDuration = trackDuration;
+        TxtTitle.Text = LyricChoiceStore.SearchTitle(title);
+        TxtArtist.Text = LyricChoiceStore.SearchArtist(title, artist);
         Loaded += async (_, _) => await RunSearch();
     }
 
@@ -49,7 +53,7 @@ public partial class PickSongWindow : Window
         LstResults.ItemsSource = null;
         try
         {
-            var list = await _lyrics.SearchCandidatesAsync(title, artist);
+            var list = await _lyrics.SearchCandidatesAsync(title, artist, _trackDuration);
             LstResults.ItemsSource = list;
             if (list.Count > 0)
             {

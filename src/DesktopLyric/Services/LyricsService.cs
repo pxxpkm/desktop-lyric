@@ -32,12 +32,15 @@ public class LyricsService
             }
         }
 
+        var qTitle = LyricChoiceStore.SearchTitle(title);
+        var qArtist = LyricChoiceStore.SearchArtist(title, artist);
+
         var tasks = new[]
         {
-            SearchNetease(title, artist),
-            SearchQQ(title, artist),
-            SearchKugou(title, artist),
-            SearchLrcLib(title, artist)
+            SearchNetease(qTitle, qArtist, trackDuration),
+            SearchQQ(qTitle, qArtist),
+            SearchKugou(qTitle, qArtist),
+            SearchLrcLib(qTitle, qArtist)
         };
         var results = await Task.WhenAll(tasks);
         if (gen != _searchGen) return null;
@@ -56,24 +59,28 @@ public class LyricsService
         // retry with cleaned title
         if (result == null || result.Count == 0)
         {
-            var clean = CleanTitle(title);
-            if (clean != title)
+            var clean = CleanTitle(qTitle);
+            if (clean != qTitle)
             {
                 var retry = await Task.WhenAll(
-                    SearchNetease(clean, artist),
-                    SearchLrcLib(clean, artist));
+                    SearchNetease(clean, qArtist, trackDuration),
+                    SearchLrcLib(clean, qArtist));
                 if (gen != _searchGen) return null;
                 result = retry.FirstOrDefault(r => r != null && r.Count > 0);
             }
         }
 
         if (result != null && result.Count > 0)
+        {
             EnsureTranslation(result, gen);
+            return result;
+        }
 
-        return result;
+        // Empty = finished with nothing. Null is reserved for Cancel / generation mismatch.
+        return [];
     }
 
-    public async Task<List<LyricCandidate>> SearchCandidatesAsync(string title, string artist)
+    public async Task<List<LyricCandidate>> SearchCandidatesAsync(string title, string artist, TimeSpan? trackDuration = null)
     {
         var bags = await Task.WhenAll(
             CandidatesNetease(title, artist),
@@ -91,7 +98,20 @@ public class LyricsService
                 list.Add(c);
             }
         }
+        if (trackDuration is { TotalSeconds: >= 20 } dur)
+        {
+            list = list
+                .OrderBy(c => DurationDelta(c.Duration, dur))
+                .ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
         return list;
+    }
+
+    private static double DurationDelta(TimeSpan song, TimeSpan track)
+    {
+        if (song.TotalSeconds < 8) return 10_000;
+        return Math.Abs(song.TotalSeconds - track.TotalSeconds);
     }
 
     public async Task<List<LrcLine>?> FetchAsync(LyricCandidate candidate)
@@ -100,8 +120,11 @@ public class LyricsService
         var lines = await FetchByKeyAsync(candidate.Key);
         if (gen != _searchGen) return null;
         if (lines is { Count: > 0 })
+        {
             EnsureTranslation(lines, gen);
-        return lines;
+            return lines;
+        }
+        return [];
     }
 
     private void EnsureTranslation(List<LrcLine> result, int gen)
@@ -530,7 +553,7 @@ public class LyricsService
 
     public void Cancel() => _searchGen++;
 
-    private async Task<List<LrcLine>?> SearchNetease(string title, string artist)
+    private async Task<List<LrcLine>?> SearchNetease(string title, string artist, TimeSpan? trackDur = null)
     {
         try
         {
@@ -548,7 +571,7 @@ public class LyricsService
             if (!result.TryGetProperty("songs", out var songs)) return null;
             if (songs.GetArrayLength() == 0) return null;
 
-            var songId = PickBest(songs, title, artist, "name", "artists");
+            var songId = PickBest(songs, title, artist, "name", "artists", trackDur);
             if (songId < 0) return null;
 
             using var lReq = new HttpRequestMessage(HttpMethod.Get,
@@ -829,7 +852,11 @@ public class LyricsService
         }
     }
 
-    private static List<(int startMs, List<KaraokeWordTiming> words)> ParseYrcLines(string yrc)
+    /// <summary>
+    /// NetEase YRC: [lineStartMs,lineDur](absOrRelStart,dur,0)word...
+    /// Word timestamps are usually absolute; some dumps are already relative to the line.
+    /// </summary>
+    internal static List<(int startMs, List<KaraokeWordTiming> words)> ParseYrcLines(string yrc)
     {
         var result = new List<(int, List<KaraokeWordTiming>)>();
         foreach (var raw in yrc.Split('\n'))
@@ -844,18 +871,34 @@ public class LyricsService
             var matches = YrcWordRegex.Matches(rest);
             if (matches.Count == 0) continue;
 
-            var words = new List<KaraokeWordTiming>();
+            var rawWords = new List<(int start, int dur, string txt)>(matches.Count);
             for (int i = 0; i < matches.Count; i++)
             {
                 var m = matches[i];
-                if (!int.TryParse(m.Groups[1].Value, out int absStart) ||
+                if (!int.TryParse(m.Groups[1].Value, out int start) ||
                     !int.TryParse(m.Groups[2].Value, out int dur)) continue;
                 int textStart = m.Index + m.Length;
+                if (textStart < 0 || textStart > rest.Length) continue;
                 int textEnd = i + 1 < matches.Count ? matches[i + 1].Index : rest.Length;
+                if (textEnd < textStart) textEnd = textStart;
+                if (textEnd > rest.Length) textEnd = rest.Length;
                 var txt = rest[textStart..textEnd];
                 if (string.IsNullOrEmpty(txt)) continue;
-                int rel = absStart - lineStart;
+                if (dur < 0) dur = 0;
+                rawWords.Add((start, dur, txt));
+            }
+            if (rawWords.Count == 0) continue;
+
+            // Absolute: first word start ≈ line start (typical NetEase).
+            // Relative: first word start is a small offset (0, 80, …) even when lineStart is large.
+            var first = rawWords[0].start;
+            var absolute = first + 80 >= lineStart;
+            var words = new List<KaraokeWordTiming>(rawWords.Count);
+            foreach (var (start, dur, txt) in rawWords)
+            {
+                int rel = absolute ? start - lineStart : start;
                 if (rel < 0) rel = 0;
+                if (rel > 60_000) continue;
                 words.Add(new KaraokeWordTiming(rel, dur, txt));
             }
             if (words.Count > 0)
@@ -864,25 +907,49 @@ public class LyricsService
         return result;
     }
 
-    private static long PickBest(JsonElement songs, string title, string artist, string nameKey, string artistsKey)
+    private static long PickBest(JsonElement songs, string title, string artist, string nameKey, string artistsKey,
+        TimeSpan? trackDur = null)
     {
-        long bestId = -1; int bestScore = -1;
+        long bestId = -1; int bestScore = int.MinValue;
         var tLow = title.ToLowerInvariant().Trim();
         var aLow = artist.ToLowerInvariant().Trim();
+        var tCore = CoreTitle(tLow);
+        var wantTv = LyricChoiceStore.LooksLikeTvSize(tLow) || LyricChoiceStore.LooksLikeTvOp(tLow);
         foreach (var song in songs.EnumerateArray())
         {
             var name = (song.GetProperty(nameKey).GetString() ?? "").ToLowerInvariant();
+            var nCore = CoreTitle(name);
             int sc = 0;
-            if (name == tLow) sc += 100; else if (name.Contains(tLow) || tLow.Contains(name)) sc += 50;
+            if (nCore == tCore || name == tLow) sc += 100;
+            else if (nCore.Contains(tCore) || tCore.Contains(nCore)) sc += 50;
+            if (wantTv && LyricChoiceStore.LooksLikeTvSize(name)) sc += 50;
+            if (!wantTv && LyricChoiceStore.LooksLikeTvSize(name)) sc -= 20;
             if (song.TryGetProperty(artistsKey, out var arts))
                 foreach (var a in arts.EnumerateArray())
                 {
                     var an = (a.GetProperty("name").GetString() ?? "").ToLowerInvariant();
                     if (an == aLow || aLow.Contains(an) || an.Contains(aLow)) { sc += 30; break; }
                 }
+            if (trackDur is { TotalSeconds: >= 20 } td
+                && song.TryGetProperty("duration", out var dEl)
+                && dEl.TryGetInt32(out var ms) && ms >= 8000)
+            {
+                var ratio = (ms / 1000.0) / td.TotalSeconds;
+                if (ratio is >= 0.85 and <= 1.15) sc += 80;
+                else if (ratio is >= 0.7 and <= 1.3) sc += 20;
+                else sc -= 50;
+            }
             if (sc > bestScore) { bestScore = sc; bestId = song.GetProperty("id").GetInt64(); }
         }
         return bestScore >= 20 ? bestId : -1;
+    }
+
+    private static string CoreTitle(string s)
+    {
+        s = Regex.Replace(s, @"\s*[\(\[（【].*?[\)\]）】]\s*", " ");
+        s = Regex.Replace(s, @"\s+", " ").Trim();
+        s = Regex.Replace(s, @"\s*-\s*", "-");
+        return s;
     }
 
     private static void MergeTranslation(List<LrcLine> orig, List<LrcLine> trans)
@@ -894,6 +961,18 @@ public class LyricsService
             if (match != null && Math.Abs((match.Time - t.Time).TotalMilliseconds) < 500)
                 match.TranslatedText = t.Text;
         }
+    }
+
+    private static bool IsLrcJunk(string text)
+    {
+        if (text.Equals("undefined", StringComparison.OrdinalIgnoreCase)) return true;
+        if (text.StartsWith("by:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (text.StartsWith("[by:", StringComparison.OrdinalIgnoreCase)) return true;
+        var compact = text.Replace(" ", "");
+        return compact.StartsWith("作词") || compact.StartsWith("作詞")
+            || compact.StartsWith("作曲") || compact.StartsWith("编曲")
+            || compact.StartsWith("編曲") || compact.StartsWith("歌词:")
+            || compact.StartsWith("歌詞:");
     }
 
     /// <summary>netease/qq sometimes return "纯音乐，请欣赏" as lyrics for instrumentals</summary>
@@ -944,7 +1023,7 @@ public class LyricsService
                 var msRaw = m.Groups[3].Value;
                 var ms = msRaw.Length == 2 ? int.Parse(msRaw) * 10 : int.Parse(msRaw);
                 var text = m.Groups[4].Value.Trim();
-                if (string.IsNullOrEmpty(text)) continue;
+                if (string.IsNullOrEmpty(text) || IsLrcJunk(text)) continue;
                 var time = TimeSpan.FromMinutes(min) + TimeSpan.FromSeconds(sec) + TimeSpan.FromMilliseconds(ms);
                 lines.Add(new LrcLine(time, text));
             }

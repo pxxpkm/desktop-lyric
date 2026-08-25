@@ -14,7 +14,8 @@
         TextOptions.TextRenderingMode="Grayscale"
         TextOptions.TextHintingMode="Animated"
         UseLayoutRounding="False"
-        MouseLeftButtonDown="Window_Drag">
+        MouseLeftButtonDown="Window_Drag"
+        PreviewKeyDown="Window_PreviewKeyDown">
 
     <Border CornerRadius="16" ClipToBounds="True" BorderThickness="1">
         <Border.BorderBrush>
@@ -141,6 +142,51 @@
                 </Button>
                 <Button Content="選歌" Click="PickSong_Click"
                         ToolTip="同名歌揀正確版本"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
+                <Button Content="記憶" Click="SavedSongs_Click"
+                        ToolTip="檢視、改揀或刪除已記住嘅歌詞"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
+                <Button Content="−" Click="OffsetLater_Click"
+                        ToolTip="歌詞早咗：延遲 0.05 秒（呢首歌會記住）"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="10,7" FontSize="11" Cursor="Hand" Margin="3,3,0,3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
+                <Button x:Name="BtnOffset" Content="±0.00s" Click="OffsetReset_Click"
+                        ToolTip="重設呢首歌嘅時機微調"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="10,7" FontSize="11" Cursor="Hand" Margin="0,3,0,3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
+                <Button Content="＋" Click="OffsetEarlier_Click"
+                        ToolTip="歌詞遲咗：提早 0.05 秒（呢首歌會記住）"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="10,7" FontSize="11" Cursor="Hand" Margin="0,3,3,3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
+                <Button Content="全屏" Click="Fullscreen_Click"
+                        ToolTip="專輯版面／全幕歌詞（F11）"
                         Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">

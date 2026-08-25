@@ -33,7 +33,7 @@ public class LyricLineView : FrameworkElement
 
     public static readonly DependencyProperty WordsProperty = DependencyProperty.Register(
         nameof(Words), typeof(IList<KaraokeWordTiming>), typeof(LyricLineView),
-        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty LineElapsedMsProperty = DependencyProperty.Register(
         nameof(LineElapsedMs), typeof(double), typeof(LyricLineView),
@@ -42,6 +42,9 @@ public class LyricLineView : FrameworkElement
     public static readonly DependencyProperty IsCurrentProperty = DependencyProperty.Register(
         nameof(IsCurrent), typeof(bool), typeof(LyricLineView),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
+
+    private string? _karaokeKey;
+    private List<(string text, double x, double y, int start, int dur)>? _karaokeLayout;
 
     public string Text
     {
@@ -104,93 +107,166 @@ public class LyricLineView : FrameworkElement
     protected override Size MeasureOverride(Size availableSize)
     {
         double maxW = double.IsInfinity(availableSize.Width) ? 4096 : Math.Max(availableSize.Width, 1);
+        var fs = SafeFontSize();
         // Current line: one-line height so wrapping cannot steal space from translation.
         if (IsCurrent)
-            return new Size(maxW, FontSize * 1.25);
-        var ft = CreateFormatted(Text ?? "", Foreground, maxW, FontSize);
-        var h = Math.Max(ft.Height, FontSize * 1.2);
+            return new Size(maxW, fs * 1.25);
+        var ft = CreateFormatted(Text ?? "", Foreground, maxW, fs);
+        var h = Math.Max(ft.Height, fs * 1.2);
         if (!double.IsInfinity(availableSize.Height))
-            h = Math.Min(h, Math.Max(availableSize.Height, FontSize * 1.2));
+            h = Math.Min(h, Math.Max(availableSize.Height, fs * 1.2));
         return new Size(maxW, h);
     }
 
     protected override void OnRender(DrawingContext dc)
     {
-        var maxW = Math.Max(ActualWidth, 1);
-        var words = Words;
-        if (IsCurrent && words is { Count: > 0 })
+        try
         {
-            var scale = FitScale(string.Concat(words.Select(w => w.Text ?? "")), maxW);
-            var fs = FontSize * scale;
-            foreach (var (text, brush, x, y) in LayoutKaraoke(maxW, fs))
+            RenderCore(dc);
+        }
+        catch
+        {
+            try
             {
-                var ft = CreateFormatted(text, brush, 0, fs);
+                var fs = SafeFontSize();
+                var body = CreateFormatted(Text ?? "", AccentColorBrush(), 0, fs);
+                DrawVector(dc, body, new Point(0, 0), AccentColorBrush());
+            }
+            catch { }
+        }
+    }
+
+    private void RenderCore(DrawingContext dc)
+    {
+        var maxW = Math.Max(ActualWidth, 1);
+        var fs = SafeFontSize();
+        var words = Words;
+        if (IsCurrent && words is { Count: > 0 } && words.Count < 400)
+        {
+            var layout = EnsureKaraokeLayout(words, maxW, fs);
+            var elapsed = double.IsNaN(LineElapsedMs) ? 0 : LineElapsedMs;
+            var drawFs = fs * FitScale(string.Concat(words.Take(80).Select(w => w.Text ?? "")), maxW);
+            foreach (var (text, x, y, start, dur) in layout)
+            {
+                var brush = KaraokeBrush(elapsed, start, dur);
+                var ft = CreateFormatted(text, brush, 0, drawFs);
                 DrawVector(dc, ft, new Point(x, y), brush);
             }
             return;
         }
 
-        var brushFill = IsCurrent ? AccentBrush : Foreground;
+        var brushFill = IsCurrent ? AccentColorBrush() : Foreground;
         var fit = IsCurrent ? FitScale(Text ?? "", maxW) : 1.0;
-        var body = CreateFormatted(Text ?? "", brushFill, IsCurrent ? 0 : maxW, FontSize * fit);
+        var body = CreateFormatted(Text ?? "", brushFill, IsCurrent ? 0 : maxW, fs * fit);
         var y0 = Math.Max(0, (ActualHeight - body.Height) / 2);
         var x0 = IsCurrent ? Math.Max(0, (maxW - body.Width) / 2) : 0;
         DrawVector(dc, body, new Point(x0, y0), brushFill);
     }
 
-    private double FitScale(string text, double maxW)
+    private List<(string text, double x, double y, int start, int dur)> EnsureKaraokeLayout(
+        IList<KaraokeWordTiming> words, double maxWidth, double fontSize)
     {
-        if (maxW <= 1 || string.IsNullOrEmpty(text)) return 1;
-        var probe = CreateFormatted(text, Brushes.White, 0, FontSize);
-        if (probe.WidthIncludingTrailingWhitespace <= maxW) return 1;
-        return Math.Max(0.55, maxW / probe.WidthIncludingTrailingWhitespace);
-    }
+        var scale = FitScale(string.Concat(words.Select(w => w.Text ?? "")), maxWidth);
+        var fs = fontSize * scale;
+        var key = $"{maxWidth:0.#}|{ActualHeight:0.#}|{fs:0.##}|{SettingsFont}|{FontHint()}|{words.Count}|{Text}";
+        if (_karaokeLayout != null && _karaokeKey == key)
+            return _karaokeLayout;
 
-    private List<(string text, Brush brush, double x, double y)> LayoutKaraoke(double maxWidth, double fontSize)
-    {
-        var elapsed = LineElapsedMs;
-        var unsung = new SolidColorBrush(Color.FromRgb(0x58, 0x68, 0x78));
-        unsung.Freeze();
+        var unsung = Brushes.White;
         var x = 0.0;
-        var result = new List<(string, Brush, double, double)>();
-        var line = new List<(string text, Brush brush, double w)>();
-
-        foreach (var w in Words ?? Array.Empty<KaraokeWordTiming>())
+        var pieces = new List<(string text, double w, int start, int dur)>();
+        var n = Math.Min(words.Count, 80);
+        for (int i = 0; i < n; i++)
         {
-            var endMs = w.StartMs + w.DurationMs;
-            Brush b;
-            if (elapsed >= endMs) b = AccentBrush;
-            else if (elapsed <= w.StartMs) b = unsung;
-            else
-            {
-                var pct = Math.Clamp((elapsed - w.StartMs) / Math.Max(1, w.DurationMs), 0, 1);
-                var ac = ((SolidColorBrush)AccentBrush).Color;
-                b = new SolidColorBrush(Color.FromRgb(
-                    (byte)(0x58 + (ac.R - 0x58) * pct),
-                    (byte)(0x68 + (ac.G - 0x68) * pct),
-                    (byte)(0x78 + (ac.B - 0x78) * pct)));
-                b.Freeze();
-            }
-
+            var w = words[i];
             var piece = w.Text ?? "";
-            var ww = CreateFormatted(piece, b, 0, fontSize).WidthIncludingTrailingWhitespace;
-            line.Add((piece, b, ww));
+            if (piece.Length == 0) continue;
+            var ww = CreateFormatted(piece, unsung, 0, fs).WidthIncludingTrailingWhitespace;
+            if (double.IsNaN(ww) || double.IsInfinity(ww)) ww = fs;
+            pieces.Add((piece, ww, w.StartMs, Math.Max(0, w.DurationMs)));
             x += ww;
         }
 
-        var start = Math.Max(0, (maxWidth - x) / 2);
-        var y = Math.Max(0, (ActualHeight - fontSize * 1.2) / 2);
-        var cx = start;
-        foreach (var (t, b, w) in line)
+        var startX = Math.Max(0, (maxWidth - x) / 2);
+        var y = Math.Max(0, (ActualHeight - fs * 1.2) / 2);
+        if (double.IsNaN(y) || double.IsInfinity(y)) y = 0;
+        var layout = new List<(string, double, double, int, int)>(pieces.Count);
+        var cx = startX;
+        foreach (var (t, w, start, dur) in pieces)
         {
-            result.Add((t, b, cx, y));
+            layout.Add((t, cx, y, start, dur));
             cx += w;
         }
-        return result;
+        _karaokeKey = key;
+        _karaokeLayout = layout;
+        return layout;
+    }
+
+    private Brush KaraokeBrush(double elapsed, int startMs, int durMs)
+    {
+        var endMs = startMs + durMs;
+        if (elapsed >= endMs) return AccentColorBrush();
+        if (elapsed <= startMs || durMs <= 0) return UnsungBrush();
+        var pct = Math.Clamp((elapsed - startMs) / durMs, 0, 1);
+        var ac = AccentColor();
+        var b = new SolidColorBrush(Color.FromRgb(
+            (byte)(0x58 + (ac.R - 0x58) * pct),
+            (byte)(0x68 + (ac.G - 0x68) * pct),
+            (byte)(0x78 + (ac.B - 0x78) * pct)));
+        b.Freeze();
+        return b;
+    }
+
+    private static readonly SolidColorBrush UnsungFrozen = CreateUnsung();
+    private static SolidColorBrush CreateUnsung()
+    {
+        var b = new SolidColorBrush(Color.FromRgb(0x58, 0x68, 0x78));
+        b.Freeze();
+        return b;
+    }
+    private static Brush UnsungBrush() => UnsungFrozen;
+
+    private Color AccentColor()
+        => AccentBrush is SolidColorBrush sb ? sb.Color : Color.FromRgb(0x00, 0xd4, 0xff);
+
+    private Brush AccentColorBrush()
+        => AccentBrush as SolidColorBrush ?? Brushes.Cyan;
+
+    private string FontHint()
+    {
+        if (LyricFonts.HasKana(Text)) return Text ?? "";
+        var words = Words;
+        if (words is { Count: > 0 })
+        {
+            var all = string.Concat(words.Take(80).Select(w => w.Text ?? ""));
+            if (LyricFonts.HasKana(all)) return all;
+        }
+        return Text ?? "";
+    }
+
+    private double SafeFontSize()
+    {
+        var fs = FontSize;
+        if (double.IsNaN(fs) || double.IsInfinity(fs) || fs < 1) return 14;
+        return Math.Clamp(fs, 8, 160);
+    }
+
+    private double FitScale(string text, double maxW)
+    {
+        if (maxW <= 1 || string.IsNullOrEmpty(text)) return 1;
+        var fs = SafeFontSize();
+        var probe = CreateFormatted(text, Brushes.White, 0, fs);
+        if (probe.WidthIncludingTrailingWhitespace <= maxW) return 1;
+        var scale = maxW / probe.WidthIncludingTrailingWhitespace;
+        if (double.IsNaN(scale) || double.IsInfinity(scale)) return 1;
+        return Math.Max(0.55, scale);
     }
 
     private void DrawVector(DrawingContext dc, FormattedText ft, Point origin, Brush fill)
     {
+        if (double.IsNaN(origin.X) || double.IsNaN(origin.Y)
+            || double.IsInfinity(origin.X) || double.IsInfinity(origin.Y))
+            origin = new Point(0, 0);
         var geo = ft.BuildGeometry(origin);
         if (geo.IsEmpty()) return;
         geo.Freeze();
@@ -199,12 +275,15 @@ public class LyricLineView : FrameworkElement
 
     private FormattedText CreateFormatted(string text, Brush brush, double maxWidth, double fontSize)
     {
+        if (double.IsNaN(fontSize) || fontSize < 1) fontSize = SafeFontSize();
         var dip = 1.0;
         try { dip = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
-        if (dip <= 0) dip = 1.0;
+        if (dip <= 0 || double.IsNaN(dip)) dip = 1.0;
 
-        var typeface = LyricFonts.TypefaceFor(text, SettingsFont);
-        var culture = LyricFonts.CultureFor(text);
+        var hint = FontHint();
+        var typeface = LyricFonts.TypefaceFor(text, SettingsFont, hint);
+        var culture = LyricFonts.CultureFor(text, hint);
+        if (text.Length > 400) text = text[..400];
         var ft = new FormattedText(
             string.IsNullOrEmpty(text) ? " " : text,
             culture,
@@ -217,7 +296,7 @@ public class LyricLineView : FrameworkElement
             Trimming = TextTrimming.None,
             TextAlignment = maxWidth > 1 ? TextAlignment.Center : TextAlignment.Left,
         };
-        if (maxWidth > 1)
+        if (maxWidth > 1 && !double.IsInfinity(maxWidth) && !double.IsNaN(maxWidth))
             ft.MaxTextWidth = maxWidth;
         return ft;
     }

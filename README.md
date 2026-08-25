@@ -7,7 +7,7 @@ Desktop lyrics overlay for Windows. Shows synced lyrics with Chinese translation
 - Detects currently playing song via Windows SMTC
 - Fetches lyrics from Netease, QQ Music, Kugou, LRCLIB
 - Syncs lyrics to playback position (interpolates when SMTC position freezes)
-- Traditional Chinese by default (toggle **繁體**)
+- Traditional Chinese by default (toggle **繁體**; OpenCC phrase-level 簡→繁, Hong Kong variants)
 - Floating overlay — opens on startup; drag / resize; type size follows window height
 - Karaoke word-by-word highlight (Netease YRC); Japanese + Chinese packed into one line is split
 - **選歌** when several tracks share a name (choice is remembered)
