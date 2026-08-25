@@ -17,4 +17,12 @@
     <InternalsVisibleTo Include="DesktopLyric.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="Fonts\*.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
+
 </Project>

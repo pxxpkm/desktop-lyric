@@ -1,6 +1,7 @@
 <Window x:Class="DesktopLyric.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DesktopLyric.Views"
         Title="Desktop Lyric"
         Height="640" Width="460"
         WindowStartupLocation="CenterScreen"
@@ -8,6 +9,11 @@
         WindowStyle="None"
         AllowsTransparency="True"
         ResizeMode="CanMinimize"
+        FontFamily="Noto Sans HK Medium, Noto Sans HK, Segoe UI"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="Grayscale"
+        TextOptions.TextHintingMode="Animated"
+        UseLayoutRounding="False"
         MouseLeftButtonDown="Window_Drag">
 
     <Border CornerRadius="16" ClipToBounds="True" BorderThickness="1">
@@ -97,30 +103,45 @@
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock x:Name="TxtPrev" Text=""
                                FontSize="11.5" Foreground="#30FFFFFF"
-                               TextAlignment="Center" Margin="0,0,0,6"
+                               TextAlignment="Center" Margin="0,0,0,2"
                                TextWrapping="Wrap"/>
                     <TextBlock x:Name="TxtRomaji" Text=""
                                FontSize="10" Foreground="#5090c0"
                                TextAlignment="Center" FontStyle="Italic"
                                Margin="0,0,0,3"/>
-                    <TextBlock x:Name="TxtCurrent" Text="lyrics will show here"
-                               FontSize="17" Foreground="#00d4ff" FontWeight="Bold"
-                               TextAlignment="Center" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="TxtTrans" Text=""
-                               FontSize="12.5" Foreground="#c0c8d8"
-                               TextAlignment="Center" Margin="0,4,0,0"
-                               TextWrapping="Wrap"/>
+                    <local:LyricLineView x:Name="TxtCurrent" FontSize="18" IsCurrent="True"
+                                         MinHeight="26" Margin="0,2,0,2"/>
+                    <local:LyricLineView x:Name="TxtTrans" FontSize="18"
+                                         Foreground="#C0C8D8" MinHeight="24" Margin="0,2,0,0"/>
                     <TextBlock x:Name="TxtNext" Text=""
                                FontSize="11.5" Foreground="#30FFFFFF"
-                               TextAlignment="Center" Margin="0,6,0,0"
+                               TextAlignment="Center" Margin="0,2,0,0"
                                TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
             <!-- Buttons -->
             <WrapPanel Grid.Row="4" HorizontalAlignment="Center" Margin="0,0,0,10">
+                <Button x:Name="BtnFont" Content="昭源圓體" Click="CycleFont_Click"
+                        ToolTip="切換中文字型"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
                 <Button x:Name="BtnTrad" Content="繁體" Click="ToggleTraditional_Click"
                         Background="#0CFFFFFF" Foreground="#00d4ff"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
+                <Button Content="選歌" Click="PickSong_Click"
+                        ToolTip="同名歌揀正確版本"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">
                     <Button.Resources>

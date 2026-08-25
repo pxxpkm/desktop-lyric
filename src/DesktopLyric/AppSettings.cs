@@ -13,6 +13,7 @@ public class AppSettings
     public int GlobalOffsetMs { get; set; } = 0; // negative = lyrics show earlier
     public double OverlayOpacity { get; set; } = 85;
     public string AccentColor { get; set; } = "#00d4ff"; // might add color picker later
+    public string FontFamily { get; set; } = "Chiron GoRound TC";
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

@@ -20,6 +20,18 @@ public class LyricsService
     {
         var gen = ++_searchGen;
 
+        var saved = LyricChoiceStore.Get(title, artist);
+        if (!string.IsNullOrEmpty(saved))
+        {
+            var pinned = await FetchByKeyAsync(saved);
+            if (gen != _searchGen) return null;
+            if (pinned is { Count: > 0 })
+            {
+                EnsureTranslation(pinned, gen);
+                return pinned;
+            }
+        }
+
         var tasks = new[]
         {
             SearchNetease(title, artist),
@@ -56,13 +68,437 @@ public class LyricsService
         }
 
         if (result != null && result.Count > 0)
-        {
-            var needsTrans = result.Any(l => string.IsNullOrEmpty(l.TranslatedText));
-            if (needsTrans)
-                _ = Task.Run(() => TranslateInBackground(result, gen));
-        }
+            EnsureTranslation(result, gen);
 
         return result;
+    }
+
+    public async Task<List<LyricCandidate>> SearchCandidatesAsync(string title, string artist)
+    {
+        var bags = await Task.WhenAll(
+            CandidatesNetease(title, artist),
+            CandidatesQQ(title, artist),
+            CandidatesKugou(title, artist),
+            CandidatesLrcLib(title, artist));
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = new List<LyricCandidate>();
+        foreach (var bag in bags)
+        {
+            foreach (var c in bag)
+            {
+                if (string.IsNullOrEmpty(c.Key) || !seen.Add(c.Key)) continue;
+                list.Add(c);
+            }
+        }
+        return list;
+    }
+
+    public async Task<List<LrcLine>?> FetchAsync(LyricCandidate candidate)
+    {
+        var gen = ++_searchGen;
+        var lines = await FetchByKeyAsync(candidate.Key);
+        if (gen != _searchGen) return null;
+        if (lines is { Count: > 0 })
+            EnsureTranslation(lines, gen);
+        return lines;
+    }
+
+    private void EnsureTranslation(List<LrcLine> result, int gen)
+    {
+        SplitMixedLyrics(result);
+        var needsTrans = result.Any(l => string.IsNullOrEmpty(l.TranslatedText));
+        if (needsTrans)
+            _ = Task.Run(() => TranslateInBackground(result, gen));
+    }
+
+    /// <summary>
+    /// NetEase karaoke/YRC often packs Japanese + Chinese into one line.
+    /// Split so overlay can show JP as current and CN as translation.
+    /// </summary>
+    public static void SplitMixedLyrics(List<LrcLine> lyrics)
+    {
+        for (int i = 0; i < lyrics.Count - 1;)
+        {
+            var a = lyrics[i];
+            var b = lyrics[i + 1];
+            if (Math.Abs((a.Time - b.Time).TotalMilliseconds) > 150) { i++; continue; }
+            if (string.IsNullOrEmpty(a.TranslatedText) && IsJapaneseLine(a.Text) && IsChineseOnly(b.Text))
+            {
+                a.TranslatedText = b.Text;
+                lyrics.RemoveAt(i + 1);
+                continue;
+            }
+            if (string.IsNullOrEmpty(b.TranslatedText) && IsChineseOnly(a.Text) && IsJapaneseLine(b.Text))
+            {
+                b.TranslatedText = a.Text;
+                lyrics.RemoveAt(i);
+                continue;
+            }
+            i++;
+        }
+
+        for (int i = 0; i < lyrics.Count; i++)
+        {
+            var line = lyrics[i];
+            var (orig, trans) = SplitBilingual(line.Text);
+            if (trans == null && line.WordTimings is { Count: > 0 })
+            {
+                var full = string.Concat(line.WordTimings.Select(w => w.Text ?? ""));
+                (orig, trans) = SplitBilingual(full);
+            }
+            if (trans == null) continue;
+            var n = line with { Text = orig };
+            n.TranslatedText = string.IsNullOrEmpty(line.TranslatedText) ? trans : line.TranslatedText;
+            n.WordTimings = SliceWords(line.WordTimings, orig.Length) ?? line.WordTimings;
+            lyrics[i] = n;
+        }
+    }
+
+    public static (string orig, string? trans) SplitBilingual(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return (text, null);
+        if (!LyricFonts.HasKana(text) || !LooksLikeChinese(text)) return (text, null);
+
+        foreach (var sep in new[] { " / ", "／", " /", "/ ", " | ", "｜", " // " })
+        {
+            var at = text.IndexOf(sep, StringComparison.Ordinal);
+            if (at <= 0) continue;
+            var left = text[..at].Trim();
+            var right = text[(at + sep.Length)..].Trim();
+            if (left.Length == 0 || right.Length == 0) continue;
+            if (IsJapaneseLine(left) && IsChineseOnly(right)) return (left, right);
+            if (IsChineseOnly(left) && IsJapaneseLine(right)) return (right, left);
+        }
+
+        int lastKana = -1;
+        for (int i = 0; i < text.Length; i++)
+            if (IsKana(text[i])) lastKana = i;
+        if (lastKana < 0 || lastKana >= text.Length - 2) return (text, null);
+
+        int split = lastKana + 1;
+        while (split < text.Length && (char.IsWhiteSpace(text[split]) || "·・/／|｜".Contains(text[split])))
+            split++;
+        var rest = text[split..].Trim();
+        var head = text[..split].Trim();
+        if (rest.Length >= 2 && IsChineseOnly(rest) && IsJapaneseLine(head))
+            return (head, rest);
+        return (text, null);
+    }
+
+    private static List<KaraokeWordTiming>? SliceWords(List<KaraokeWordTiming>? words, int origChars)
+    {
+        if (words == null || origChars <= 0) return words;
+        var jp = new List<KaraokeWordTiming>();
+        var pos = 0;
+        foreach (var w in words)
+        {
+            var len = (w.Text ?? "").Length;
+            if (pos >= origChars) break;
+            jp.Add(w);
+            pos += len;
+        }
+        return jp.Count > 0 ? jp : words;
+    }
+
+    private static bool IsKana(char c) =>
+        c is (>= '\u3040' and <= '\u309F') or (>= '\u30A0' and <= '\u30FF')
+            or (>= '\u31F0' and <= '\u31FF') or (>= '\uFF66' and <= '\uFF9D');
+
+    private static bool IsJapaneseLine(string? s) =>
+        !string.IsNullOrWhiteSpace(s) && LyricFonts.HasKana(s);
+
+    private static bool IsChineseOnly(string? s) =>
+        !string.IsNullOrWhiteSpace(s) && LooksLikeChinese(s) && !LyricFonts.HasKana(s);
+
+    private async Task<List<LrcLine>?> FetchByKeyAsync(string key)
+    {
+        var i = key.IndexOf(':');
+        if (i <= 0) return null;
+        var kind = key[..i];
+        var id = key[(i + 1)..];
+        return kind switch
+        {
+            "ncm" when long.TryParse(id, out var ncmId) => await FetchNeteaseLyrics(ncmId),
+            "qq" => await FetchQQLyrics(id),
+            "kg" => await FetchKugouLyrics(id, id),
+            "lrc" => await FetchLrcLibById(id),
+            _ => null,
+        };
+    }
+
+    private async Task<List<LyricCandidate>> CandidatesNetease(string title, string artist)
+    {
+        try
+        {
+            var q = Uri.EscapeDataString(title + " " + artist);
+            using var req = new HttpRequestMessage(HttpMethod.Post,
+                "https://music.163.com/api/search/get?s=" + q + "&type=1&limit=20");
+            req.Content = new StringContent("", Encoding.UTF8, "application/x-www-form-urlencoded");
+            req.Headers.Referrer = new Uri("https://music.163.com");
+            var resp = await _http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return [];
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            if (!doc.RootElement.TryGetProperty("result", out var result)) return [];
+            if (!result.TryGetProperty("songs", out var songs)) return [];
+            var list = new List<LyricCandidate>();
+            foreach (var s in songs.EnumerateArray())
+            {
+                var name = s.GetProperty("name").GetString() ?? "";
+                var artists = "";
+                if (s.TryGetProperty("artists", out var arts))
+                    artists = string.Join(", ", arts.EnumerateArray().Select(a => a.GetProperty("name").GetString()));
+                var album = "";
+                if (s.TryGetProperty("album", out var al) && al.TryGetProperty("name", out var an))
+                    album = an.GetString() ?? "";
+                var dur = TimeSpan.Zero;
+                if (s.TryGetProperty("duration", out var d) && d.TryGetInt32(out var ms) && ms > 0)
+                    dur = TimeSpan.FromMilliseconds(ms);
+                list.Add(new LyricCandidate
+                {
+                    Key = "ncm:" + s.GetProperty("id").GetInt64(),
+                    Source = "網易雲",
+                    Title = name,
+                    Artist = artists,
+                    Album = album,
+                    Duration = dur,
+                });
+            }
+            return list;
+        }
+        catch { return []; }
+    }
+
+    private async Task<List<LyricCandidate>> CandidatesQQ(string title, string artist)
+    {
+        try
+        {
+            var query = (title + " " + artist).Replace("\"", "");
+            var body = "{\"comm\":{\"ct\":19,\"cv\":1845},\"req\":{\"method\":\"DoSearchForQQMusicDesktop\",\"module\":\"music.search.SearchCgiService\",\"param\":{\"num_per_page\":20,\"page_num\":1,\"query\":\"" + query + "\",\"search_type\":0}}}";
+            using var sReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
+            sReq.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            sReq.Headers.Referrer = new Uri("https://y.qq.com");
+            var sResp = await _http.SendAsync(sReq);
+            if (!sResp.IsSuccessStatusCode) return [];
+            using var sDoc = JsonDocument.Parse(await sResp.Content.ReadAsStringAsync());
+            var listEl = sDoc.RootElement.GetProperty("req").GetProperty("data")
+                .GetProperty("body").GetProperty("song").GetProperty("list");
+            var list = new List<LyricCandidate>();
+            foreach (var s in listEl.EnumerateArray())
+            {
+                var mid = s.GetProperty("mid").GetString();
+                if (string.IsNullOrEmpty(mid)) continue;
+                var singers = "";
+                if (s.TryGetProperty("singer", out var sg))
+                    singers = string.Join(", ", sg.EnumerateArray().Select(a => a.GetProperty("name").GetString()));
+                var album = "";
+                if (s.TryGetProperty("album", out var al) && al.TryGetProperty("name", out var an))
+                    album = an.GetString() ?? "";
+                var dur = TimeSpan.Zero;
+                if (s.TryGetProperty("interval", out var iv) && iv.TryGetInt32(out var sec) && sec > 0)
+                    dur = TimeSpan.FromSeconds(sec);
+                list.Add(new LyricCandidate
+                {
+                    Key = "qq:" + mid,
+                    Source = "QQ",
+                    Title = s.GetProperty("name").GetString() ?? "",
+                    Artist = singers,
+                    Album = album,
+                    Duration = dur,
+                });
+            }
+            return list;
+        }
+        catch { return []; }
+    }
+
+    private async Task<List<LyricCandidate>> CandidatesKugou(string title, string artist)
+    {
+        try
+        {
+            var kw = Uri.EscapeDataString(title + " " + artist);
+            var sResp = await _http.GetAsync(
+                "http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=" + kw + "&page=1&pagesize=20");
+            if (!sResp.IsSuccessStatusCode) return [];
+            using var sDoc = JsonDocument.Parse(await sResp.Content.ReadAsStringAsync());
+            var info = sDoc.RootElement.GetProperty("data").GetProperty("info");
+            var list = new List<LyricCandidate>();
+            foreach (var s in info.EnumerateArray())
+            {
+                var hash = s.GetProperty("hash").GetString();
+                if (string.IsNullOrEmpty(hash)) continue;
+                var dur = TimeSpan.Zero;
+                if (s.TryGetProperty("duration", out var d) && d.TryGetInt32(out var sec) && sec > 0)
+                    dur = TimeSpan.FromSeconds(sec);
+                list.Add(new LyricCandidate
+                {
+                    Key = "kg:" + hash,
+                    Source = "酷狗",
+                    Title = s.GetProperty("songname").GetString() ?? "",
+                    Artist = s.GetProperty("singername").GetString() ?? "",
+                    Album = s.TryGetProperty("album_name", out var al) ? al.GetString() ?? "" : "",
+                    Duration = dur,
+                });
+            }
+            return list;
+        }
+        catch { return []; }
+    }
+
+    private async Task<List<LyricCandidate>> CandidatesLrcLib(string title, string artist)
+    {
+        try
+        {
+            var url = "https://lrclib.net/api/search?track_name=" + Uri.EscapeDataString(title);
+            if (!string.IsNullOrEmpty(artist))
+                url += "&artist_name=" + Uri.EscapeDataString(artist);
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.UserAgent.ParseAdd("DesktopLyric/0.1");
+            var resp = await _http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return [];
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            var list = new List<LyricCandidate>();
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (!item.TryGetProperty("id", out var idEl)) continue;
+                if (!item.TryGetProperty("syncedLyrics", out var sl) || sl.ValueKind != JsonValueKind.String)
+                    continue;
+                if (string.IsNullOrEmpty(sl.GetString())) continue;
+                var dur = TimeSpan.Zero;
+                if (item.TryGetProperty("duration", out var d))
+                {
+                    if (d.ValueKind == JsonValueKind.Number && d.TryGetDouble(out var sec) && sec > 0)
+                        dur = TimeSpan.FromSeconds(sec);
+                }
+                list.Add(new LyricCandidate
+                {
+                    Key = "lrc:" + idEl.GetRawText().Trim('"'),
+                    Source = "LRCLIB",
+                    Title = item.TryGetProperty("trackName", out var tn) ? tn.GetString() ?? "" : "",
+                    Artist = item.TryGetProperty("artistName", out var ar) ? ar.GetString() ?? "" : "",
+                    Album = item.TryGetProperty("albumName", out var al) ? al.GetString() ?? "" : "",
+                    Duration = dur,
+                });
+            }
+            return list;
+        }
+        catch { return []; }
+    }
+
+    private async Task<List<LrcLine>?> FetchNeteaseLyrics(long songId)
+    {
+        try
+        {
+            using var lReq = new HttpRequestMessage(HttpMethod.Get,
+                "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&tv=1&yv=1");
+            lReq.Headers.Referrer = new Uri("https://music.163.com");
+            var lResp = await _http.SendAsync(lReq);
+            if (!lResp.IsSuccessStatusCode) return null;
+            using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
+            if (!lDoc.RootElement.TryGetProperty("lrc", out var lrc)) return null;
+            if (!lrc.TryGetProperty("lyric", out var lyricEl)) return null;
+            var lrcStr = lyricEl.GetString();
+            if (string.IsNullOrEmpty(lrcStr)) return null;
+            var lyrics = ParseLrc(lrcStr);
+            if (lyrics.Count == 0) return null;
+            if (IsInstrumentalPlaceholder(lyrics)) return null;
+            if (lDoc.RootElement.TryGetProperty("yrc", out var yrcRoot) &&
+                yrcRoot.TryGetProperty("lyric", out var yrcEl))
+            {
+                var yrcStr = yrcEl.GetString();
+                if (!string.IsNullOrEmpty(yrcStr))
+                    MergeYrcTimings(lyrics, yrcStr);
+            }
+            if (lDoc.RootElement.TryGetProperty("tlyric", out var tl) &&
+                tl.TryGetProperty("lyric", out var tlEl))
+            {
+                var transStr = tlEl.GetString();
+                if (!string.IsNullOrEmpty(transStr))
+                    MergeTranslation(lyrics, ParseLrc(transStr));
+            }
+            if (lDoc.RootElement.TryGetProperty("ytlrc", out var ytl) &&
+                ytl.TryGetProperty("lyric", out var ytlEl))
+            {
+                var ytlStr = ytlEl.GetString();
+                if (!string.IsNullOrEmpty(ytlStr))
+                    MergeTranslation(lyrics, ParseLrc(ytlStr));
+            }
+            return lyrics;
+        }
+        catch { return null; }
+    }
+
+    private async Task<List<LrcLine>?> FetchQQLyrics(string mid)
+    {
+        try
+        {
+            var lyricBody = "{\"comm\":{\"ct\":19,\"cv\":1845},\"req\":{\"method\":\"GetPlayLyricInfo\",\"module\":\"music.musichallSong.PlayLyricInfo\",\"param\":{\"songMID\":\"" + mid + "\",\"songID\":0}}}";
+            using var lReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
+            lReq.Content = new StringContent(lyricBody, Encoding.UTF8, "application/json");
+            lReq.Headers.Referrer = new Uri("https://y.qq.com");
+            var lResp = await _http.SendAsync(lReq);
+            if (!lResp.IsSuccessStatusCode) return null;
+            using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
+            var data = lDoc.RootElement.GetProperty("req").GetProperty("data");
+            var lyricB64 = data.GetProperty("lyric").GetString();
+            if (string.IsNullOrEmpty(lyricB64)) return null;
+            var lrcStr = Encoding.UTF8.GetString(Convert.FromBase64String(lyricB64));
+            var lyrics = ParseLrc(lrcStr);
+            if (lyrics.Count == 0) return null;
+            if (data.TryGetProperty("trans", out var transEl))
+            {
+                var transB64 = transEl.GetString();
+                if (!string.IsNullOrEmpty(transB64))
+                    MergeTranslation(lyrics, ParseLrc(Encoding.UTF8.GetString(Convert.FromBase64String(transB64))));
+            }
+            return lyrics;
+        }
+        catch { return null; }
+    }
+
+    private async Task<List<LrcLine>?> FetchKugouLyrics(string hash, string keyword)
+    {
+        try
+        {
+            var kw = Uri.EscapeDataString(keyword);
+            var lsResp = await _http.GetAsync(
+                "https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=" + kw + "&hash=" + hash);
+            if (!lsResp.IsSuccessStatusCode) return null;
+            using var lsDoc = JsonDocument.Parse(await lsResp.Content.ReadAsStringAsync());
+            var cands = lsDoc.RootElement.GetProperty("candidates");
+            if (cands.GetArrayLength() == 0) return null;
+            var c0 = cands[0];
+            var id = c0.GetProperty("id").GetString();
+            var ak = c0.GetProperty("accesskey").GetString();
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(ak)) return null;
+            var dlResp = await _http.GetAsync(
+                "https://lyrics.kugou.com/download?ver=1&client=pc&id=" + id + "&accesskey=" + ak + "&fmt=lrc&charset=utf8");
+            if (!dlResp.IsSuccessStatusCode) return null;
+            using var dlDoc = JsonDocument.Parse(await dlResp.Content.ReadAsStringAsync());
+            var contentB64 = dlDoc.RootElement.GetProperty("content").GetString();
+            if (string.IsNullOrEmpty(contentB64)) return null;
+            var lyrics = ParseLrc(Encoding.UTF8.GetString(Convert.FromBase64String(contentB64)));
+            return lyrics.Count > 0 ? lyrics : null;
+        }
+        catch { return null; }
+    }
+
+    private async Task<List<LrcLine>?> FetchLrcLibById(string id)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, "https://lrclib.net/api/get/" + Uri.EscapeDataString(id));
+            req.Headers.UserAgent.ParseAdd("DesktopLyric/0.1");
+            var resp = await _http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return null;
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            if (!doc.RootElement.TryGetProperty("syncedLyrics", out var sl)) return null;
+            var lrcStr = sl.GetString();
+            if (string.IsNullOrEmpty(lrcStr)) return null;
+            var lines = ParseLrc(lrcStr);
+            return lines.Count > 0 ? lines : null;
+        }
+        catch { return null; }
     }
 
     private static List<LrcLine>? PickByDuration(List<LrcLine>?[] results, TimeSpan trackDur)
@@ -146,6 +582,13 @@ public class LyricsService
                 var transStr = tlEl.GetString();
                 if (!string.IsNullOrEmpty(transStr))
                     MergeTranslation(lyrics, ParseLrc(transStr));
+            }
+            if (lDoc.RootElement.TryGetProperty("ytlrc", out var ytl) &&
+                ytl.TryGetProperty("lyric", out var ytlEl))
+            {
+                var ytlStr = ytlEl.GetString();
+                if (!string.IsNullOrEmpty(ytlStr))
+                    MergeTranslation(lyrics, ParseLrc(ytlStr));
             }
             return lyrics;
         }

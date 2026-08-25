@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     private static readonly System.Net.Http.HttpClient _romajiHttp = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     private string _lastTitle = "";
+    private string _lastArtist = "";
     private List<LrcLine> _lines = new();
     private string _lastRomajiInput = "";
     private string _lastRomajiOutput = ""; // cache so we don't hit google every 100ms
@@ -44,16 +45,21 @@ public partial class MainWindow : Window
 
         ApplySettings();
         ApplyTradButton();
+        ApplyFontButton();
     }
 
     private void ApplySettings()
     {
-        TxtCurrent.FontWeight = _settings.BoldLyrics
-            ? FontWeights.Bold : FontWeights.Normal;
+        FontFamily = LyricFonts.FromSettings(_settings.FontFamily);
         try
         {
-            TxtCurrent.Foreground = new System.Windows.Media.SolidColorBrush(
+            var b = new System.Windows.Media.SolidColorBrush(
                 (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(_settings.AccentColor));
+            b.Freeze();
+            TxtCurrent.AccentBrush = b;
+            TxtCurrent.Foreground = b;
+            TxtCurrent.SettingsFont = _settings.FontFamily ?? "";
+            TxtTrans.SettingsFont = _settings.FontFamily ?? "";
         }
         catch { }
     }
@@ -100,6 +106,8 @@ public partial class MainWindow : Window
         {
             TxtStatus.Text = "smtc error: " + ex.Message;
         }
+
+        ShowOverlay();
     }
 
     private async void PollNowPlaying()
@@ -124,6 +132,7 @@ public partial class MainWindow : Window
                 if (title != _lastTitle)
                 {
                     _lastTitle = title;
+                    _lastArtist = artist;
                     _lyrics.Cancel();
                     TxtCurrent.Text = "searching...";
                     TxtTrans.Text = "";
@@ -247,6 +256,7 @@ public partial class MainWindow : Window
             TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
             TxtPrev.Text = prev;
             TxtNext.Text = next;
+            ApplyLineFonts(text, trans, prev, next);
 
             _overlay?.UpdateLyrics(text,
                 _settings.HideTranslation ? null : trans,
@@ -255,7 +265,7 @@ public partial class MainWindow : Window
                 (lyricPos - _lines[idx].Time).TotalMilliseconds);
 
             // romaji
-            if (_settings.ShowRomaji && HasJapanese(text))
+            if (_settings.ShowRomaji && LyricFonts.HasKana(text))
                 UpdateRomaji(text);
             else
                 TxtRomaji.Text = "";
@@ -312,27 +322,32 @@ public partial class MainWindow : Window
         });
     }
 
+    private void ApplyLineFonts(string text, string? trans, string prev, string next)
+    {
+        var custom = _settings.FontFamily ?? "";
+        TxtCurrent.SettingsFont = custom;
+        TxtTrans.SettingsFont = custom;
+        TxtCurrent.FontSize = LyricFonts.LineSize(text, current: true);
+        TxtTrans.FontSize = LyricFonts.LineSize(trans, current: false);
+        TxtPrev.FontFamily = LyricFonts.HasKana(prev) ? LyricFonts.Japanese : LyricFonts.FromSettings(custom);
+        TxtNext.FontFamily = LyricFonts.HasKana(next) ? LyricFonts.Japanese : LyricFonts.FromSettings(custom);
+    }
+
     private string ToDisplay(string? text)
     {
         if (string.IsNullOrEmpty(text)) return text ?? "";
-        return _settings.ForceTraditional ? S2TConverter.Convert(text) : text;
+        if (!_settings.ForceTraditional || LyricFonts.HasKana(text)) return text;
+        return S2TConverter.Convert(text);
     }
 
     private List<KaraokeWordTiming>? ToDisplay(List<KaraokeWordTiming>? words)
     {
         if (words == null || words.Count == 0 || !_settings.ForceTraditional) return words;
+        if (words.Any(w => LyricFonts.HasKana(w.Text))) return words;
         var converted = new List<KaraokeWordTiming>(words.Count);
         foreach (var w in words)
             converted.Add(w with { Text = S2TConverter.Convert(w.Text) });
         return converted;
-    }
-
-    private static bool HasJapanese(string text)
-    {
-        foreach (var c in text)
-            if ((c >= 0x3040 && c <= 0x309F) || (c >= 0x30A0 && c <= 0x30FF) ||
-                (c >= 0x4E00 && c <= 0x9FFF)) return true;
-        return false;
     }
 
     private TimeSpan? GetTrackDuration()
@@ -384,6 +399,42 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void PickSong_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new PickSongWindow(_lyrics, _lastTitle, _lastArtist) { Owner = this };
+        if (win.ShowDialog() != true || win.Chosen == null) return;
+        TxtCurrent.Text = "loading...";
+        var lines = await _lyrics.FetchAsync(win.Chosen);
+        if (lines is { Count: > 0 })
+        {
+            _lines = lines;
+            TxtCurrent.Text = "♪";
+            if (win.Remember)
+                LyricChoiceStore.Set(_lastTitle, _lastArtist, win.Chosen.Key);
+            TxtStatus.Text = $"歌詞：{win.Chosen.Title} · {win.Chosen.Source}";
+        }
+        else
+        {
+            TxtCurrent.Text = "no lyrics found";
+            TxtStatus.Text = "呢首冇歌詞";
+        }
+    }
+
+    private void CycleFont_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.FontFamily = LyricFonts.CycleChinese(_settings.FontFamily);
+        _settings.Save();
+        ApplyFontButton();
+        FontFamily = LyricFonts.FromSettings(_settings.FontFamily);
+        ApplyLineFonts(TxtCurrent.Text, TxtTrans.Text, TxtPrev.Text, TxtNext.Text);
+        _overlay?.RefreshFonts();
+    }
+
+    private void ApplyFontButton()
+    {
+        BtnFont.Content = LyricFonts.CurrentLabel(_settings.FontFamily);
+    }
+
     private void ToggleTraditional_Click(object sender, RoutedEventArgs e)
     {
         _settings.ForceTraditional = !_settings.ForceTraditional;
@@ -400,17 +451,21 @@ public partial class MainWindow : Window
                 : System.Windows.Media.Color.FromRgb(0xa0, 0xb0, 0xc0));
     }
 
+    private void ShowOverlay()
+    {
+        if (_overlay != null && _overlay.IsVisible) return;
+        _overlay = new OverlayWindow(_settings);
+        _overlay.Opacity = _settings.OverlayOpacity / 100.0;
+        _overlay.SetTrackInfo(ToDisplay(_lastTitle), ToDisplay(TxtArtist.Text));
+        _overlay.TraditionalToggled += ApplyTradButton;
+        _overlay.Closed += (_, _) => _overlay = null;
+        _overlay.Show();
+    }
+
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)
     {
         if (_overlay == null || !_overlay.IsVisible)
-        {
-            _overlay = new OverlayWindow(_settings);
-            _overlay.Opacity = _settings.OverlayOpacity / 100.0;
-            _overlay.SetTrackInfo(ToDisplay(_lastTitle), ToDisplay(TxtArtist.Text));
-            _overlay.TraditionalToggled += ApplyTradButton;
-            _overlay.Closed += (_, _) => _overlay = null;
-            _overlay.Show();
-        }
+            ShowOverlay();
         else
         {
             _overlay.Close();

@@ -16,6 +16,7 @@ public partial class App : Application
             Shutdown();
             return;
         }
+        FontLoader.Load();
         base.OnStartup(e);
     }
 

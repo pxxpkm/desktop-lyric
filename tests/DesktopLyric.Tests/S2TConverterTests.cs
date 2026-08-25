@@ -48,6 +48,15 @@ public class S2TConverterTests
     }
 
     [Fact]
+    public void has_kana_detects_japanese_not_chinese()
+    {
+        Assert.True(LyricFonts.HasKana("君の知らない物語"));
+        Assert.True(LyricFonts.HasKana("ありがとう"));
+        Assert.False(LyricFonts.HasKana("雨下整夜 我的愛溢出就像雨水"));
+        Assert.False(LyricFonts.HasKana("hello"));
+    }
+
+    [Fact]
     public void converts_chars_missing_from_the_old_hand_map()
     {
         var result = S2TConverter.Convert("歌词颜帅无处");

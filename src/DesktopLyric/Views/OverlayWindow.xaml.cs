@@ -1,6 +1,4 @@
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -10,8 +8,6 @@ namespace DesktopLyric.Views;
 public partial class OverlayWindow : Window
 {
     private AppSettings _settings;
-    private double _mainFontSize = 24;
-    private double _transFontSize = 14;
 
     public event Action? TraditionalToggled;
 
@@ -23,6 +19,14 @@ public partial class OverlayWindow : Window
         _settings = settings;
         ApplyAccentColor();
         ApplyTradButton();
+        ApplyFont();
+    }
+
+    private void ApplyFont()
+    {
+        FontFamily = LyricFonts.FromSettings(_settings.FontFamily);
+        OvTrackTitle.FontFamily = FontFamily;
+        OvTrackArtist.FontFamily = FontFamily;
     }
 
     private void ApplyAccentColor()
@@ -30,7 +34,10 @@ public partial class OverlayWindow : Window
         try
         {
             var c = (Color)ColorConverter.ConvertFromString(_settings.AccentColor);
-            OvCurrent.Foreground = new SolidColorBrush(c);
+            var b = new SolidColorBrush(c);
+            b.Freeze();
+            OvCurrent.AccentBrush = b;
+            OvCurrent.Foreground = b;
         }
         catch { }
     }
@@ -43,6 +50,14 @@ public partial class OverlayWindow : Window
 
     public void RefreshTradButton() => ApplyTradButton();
 
+    public void RefreshFonts()
+    {
+        var custom = _settings.FontFamily ?? "";
+        OvCurrent.SettingsFont = custom;
+        OvTrans.SettingsFont = custom;
+        OvNext.SettingsFont = custom;
+    }
+
     private void ApplyTradButton()
     {
         BtnTrad.Foreground = _settings.ForceTraditional
@@ -53,39 +68,30 @@ public partial class OverlayWindow : Window
     public void UpdateLyrics(string current, string? translated, string? next = null,
         List<KaraokeWordTiming>? wordTimings = null, double lineElapsedMs = 0)
     {
-        // karaoke mode
-        if (wordTimings != null && wordTimings.Count > 0)
-        {
-            OvCurrent.Inlines.Clear();
-            foreach (var w in wordTimings)
-            {
-                var endMs = w.StartMs + w.DurationMs;
-                Color c;
-                if (lineElapsedMs >= endMs)
-                    c = Color.FromRgb(0x00, 0xd4, 0xff);
-                else if (lineElapsedMs <= w.StartMs)
-                    c = Color.FromRgb(0x50, 0x60, 0x70);
-                else
-                {
-                    // blend between unsung and sung
-                    var pct = (lineElapsedMs - w.StartMs) / Math.Max(1, w.DurationMs);
-                    pct = Math.Clamp(pct, 0, 1);
-                    var r = (byte)(0x50 + (0x00 - 0x50) * pct);
-                    var g = (byte)(0x60 + (0xd4 - 0x60) * pct);
-                    var b = (byte)(0x70 + (0xff - 0x70) * pct);
-                    c = Color.FromRgb(r, g, b);
-                }
-                OvCurrent.Inlines.Add(new Run(w.Text) { Foreground = new SolidColorBrush(c) });
-            }
-        }
-        else
-        {
-            OvCurrent.Inlines.Clear();
-            OvCurrent.Inlines.Add(new Run(current ?? ""));
-        }
-
+        var custom = _settings.FontFamily ?? "";
+        OvCurrent.SettingsFont = custom;
+        OvCurrent.Text = current ?? "";
+        OvCurrent.Words = wordTimings;
+        OvCurrent.LineElapsedMs = lineElapsedMs;
+        OvTrans.SettingsFont = custom;
         OvTrans.Text = translated ?? "";
+        OvNext.SettingsFont = custom;
         OvNext.Text = next ?? "";
+        ApplyLineSizes();
+    }
+
+    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) => ApplyLineSizes();
+
+    private void ApplyLineSizes()
+    {
+        var area = LyricsHost?.ActualHeight > 1
+            ? LyricsHost.ActualHeight
+            : Math.Max(50, ActualHeight - 96);
+        var jpCur = LyricFonts.HasKana(OvCurrent.Text);
+        var jpTrans = LyricFonts.HasKana(OvTrans.Text);
+        OvCurrent.FontSize = Math.Clamp(area * (jpCur ? 0.24 : 0.28), 14, 48);
+        OvTrans.FontSize = Math.Clamp(area * (jpTrans ? 0.18 : 0.30), 14, 44);
+        OvNext.FontSize = Math.Clamp(area * 0.12, 10, 20);
     }
 
     // --- controls ---
@@ -109,18 +115,18 @@ public partial class OverlayWindow : Window
 
     private void OnFontLarger(object sender, RoutedEventArgs e)
     {
-        _mainFontSize = Math.Min(48, _mainFontSize + 2);
-        _transFontSize = Math.Min(28, _transFontSize + 1);
-        OvCurrent.FontSize = _mainFontSize;
-        OvTrans.FontSize = _transFontSize;
+        GrowWindow(1.12);
     }
 
     private void OnFontSmaller(object sender, RoutedEventArgs e)
     {
-        _mainFontSize = Math.Max(14, _mainFontSize - 2);
-        _transFontSize = Math.Max(10, _transFontSize - 1);
-        OvCurrent.FontSize = _mainFontSize;
-        OvTrans.FontSize = _transFontSize;
+        GrowWindow(1 / 1.12);
+    }
+
+    private void GrowWindow(double factor)
+    {
+        Height = Math.Clamp(Height * factor, MinHeight, MaxHeight);
+        ApplyLineSizes();
     }
 
     private void OnToggleTrad(object sender, RoutedEventArgs e)
