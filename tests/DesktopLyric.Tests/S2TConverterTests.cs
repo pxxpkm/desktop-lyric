@@ -46,4 +46,11 @@ public class S2TConverterTests
         Assert.Contains("愛", result);
         Assert.Contains("溢", result); // this one stays the same
     }
+
+    [Fact]
+    public void converts_chars_missing_from_the_old_hand_map()
+    {
+        var result = S2TConverter.Convert("歌词颜帅无处");
+        Assert.Equal("歌詞顏帥無處", result);
+    }
 }

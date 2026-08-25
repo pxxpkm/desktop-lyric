@@ -1,16 +1,52 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace DesktopLyric;
 
 /// <summary>
-/// simplified → traditional, just the common ones in lyrics
-/// not a full converter, but good enough for song lyrics
+/// Simplified → Traditional Chinese. Uses the Windows locale mapper (complete
+/// Unihan table). Falls back to a small lyric-oriented map if P/Invoke fails.
 /// </summary>
 public static class S2TConverter
 {
+    private const uint LCMAP_TRADITIONAL_CHINESE = 0x04000000;
+
     public static string Convert(string input)
     {
         if (string.IsNullOrEmpty(input)) return input;
+        try
+        {
+            var dest = new char[checked(input.Length * 2)];
+            int n = LCMapStringEx(
+                "zh-HK",
+                LCMAP_TRADITIONAL_CHINESE,
+                input,
+                input.Length,
+                dest,
+                dest.Length,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                IntPtr.Zero);
+            if (n > 0) return new string(dest, 0, n);
+        }
+        catch { }
+        return Fallback(input);
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int LCMapStringEx(
+        string lpLocaleName,
+        uint dwMapFlags,
+        string lpSrcStr,
+        int cchSrc,
+        [Out] char[] lpDestStr,
+        int cchDest,
+        IntPtr lpVersionInformation,
+        IntPtr lpReserved,
+        IntPtr sortHandle);
+
+    private static string Fallback(string input)
+    {
         var sb = new StringBuilder(input.Length);
         foreach (var c in input)
             sb.Append(Map.TryGetValue(c, out var t) ? t : c);
@@ -21,10 +57,8 @@ public static class S2TConverter
 
     private static Dictionary<char, char> BuildMap()
     {
-        var m = new Dictionary<char, char>(300);
+        var m = new Dictionary<char, char>(80);
         void A(char s, char t) { m[s] = t; }
-
-        // most common in lyrics — added as I find them
         A('爱','愛'); A('边','邊'); A('变','變'); A('别','別');
         A('长','長'); A('车','車'); A('从','從'); A('达','達');
         A('带','帶'); A('单','單'); A('当','當'); A('点','點');
@@ -42,21 +76,15 @@ public static class S2TConverter
         A('虽','雖'); A('岁','歲'); A('听','聽'); A('头','頭');
         A('万','萬'); A('为','為'); A('问','問'); A('无','無');
         A('习','習'); A('现','現'); A('乡','鄉'); A('写','寫');
-        A('心','心'); A('兴','興'); A('学','學'); A('样','樣');
-        A('业','業'); A('义','義'); A('应','應'); A('远','遠');
-        A('云','雲'); A('这','這'); A('种','種'); A('转','轉');
-
-        // extra ones I keep seeing in lyrics
-        A('泪','淚'); A('谢','謝'); A('烟','煙'); A('忆','憶');
-        A('隐','隱'); A('忧','憂'); A('游','遊'); A('钟','鐘');
-        A('终','終'); A('属','屬');
-
-        // missed these, showed up in a jay chou song
-        A('国','國'); A('书','書'); A('语','語'); A('话','話');
-        A('请','請'); A('谁','誰'); A('亲','親'); A('轻','輕');
-        A('伤','傷'); A('声','聲'); A('胜','勝'); A('师','師');
-        // TODO: there's probably hundreds more, add as I find them
-
+        A('兴','興'); A('学','學'); A('样','樣'); A('业','業');
+        A('义','義'); A('应','應'); A('远','遠'); A('云','雲');
+        A('这','這'); A('种','種'); A('转','轉'); A('泪','淚');
+        A('谢','謝'); A('烟','煙'); A('忆','憶'); A('隐','隱');
+        A('忧','憂'); A('游','遊'); A('钟','鐘'); A('终','終');
+        A('属','屬'); A('国','國'); A('书','書'); A('语','語');
+        A('话','話'); A('请','請'); A('谁','誰'); A('亲','親');
+        A('轻','輕'); A('伤','傷'); A('声','聲'); A('胜','勝');
+        A('师','師');
         return m;
     }
 }

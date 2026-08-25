@@ -8,7 +8,7 @@ public class AppSettings
 {
     public bool BoldLyrics { get; set; } = true;
     public bool HideTranslation { get; set; } = false;
-    public bool ForceTraditional { get; set; } = false;
+    public bool ForceTraditional { get; set; } = true;
     public bool ShowRomaji { get; set; } = false;
     public int GlobalOffsetMs { get; set; } = 0; // negative = lyrics show earlier
     public double OverlayOpacity { get; set; } = 85;

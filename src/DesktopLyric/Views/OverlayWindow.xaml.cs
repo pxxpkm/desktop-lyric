@@ -13,11 +13,16 @@ public partial class OverlayWindow : Window
     private double _mainFontSize = 24;
     private double _transFontSize = 14;
 
-    public OverlayWindow()
+    public event Action? TraditionalToggled;
+
+    public OverlayWindow() : this(AppSettings.Load()) { }
+
+    public OverlayWindow(AppSettings settings)
     {
         InitializeComponent();
-        _settings = AppSettings.Load();
+        _settings = settings;
         ApplyAccentColor();
+        ApplyTradButton();
     }
 
     private void ApplyAccentColor()
@@ -34,6 +39,15 @@ public partial class OverlayWindow : Window
     {
         OvTrackTitle.Text = title ?? "";
         OvTrackArtist.Text = artist ?? "";
+    }
+
+    public void RefreshTradButton() => ApplyTradButton();
+
+    private void ApplyTradButton()
+    {
+        BtnTrad.Foreground = _settings.ForceTraditional
+            ? new SolidColorBrush(Color.FromRgb(0x00, 0xd4, 0xff))
+            : new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90));
     }
 
     public void UpdateLyrics(string current, string? translated, string? next = null,
@@ -89,7 +103,7 @@ public partial class OverlayWindow : Window
 
     private void OnMouseLeave(object sender, MouseEventArgs e)
     {
-        var anim = new DoubleAnimation(0, TimeSpan.FromMilliseconds(150));
+        var anim = new DoubleAnimation(0.55, TimeSpan.FromMilliseconds(150));
         ControlBar.BeginAnimation(OpacityProperty, anim);
     }
 
@@ -112,10 +126,9 @@ public partial class OverlayWindow : Window
     private void OnToggleTrad(object sender, RoutedEventArgs e)
     {
         _settings.ForceTraditional = !_settings.ForceTraditional;
-        BtnTrad.Foreground = _settings.ForceTraditional
-            ? new SolidColorBrush(Color.FromRgb(0x00, 0xd4, 0xff))
-            : new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90));
+        ApplyTradButton();
         _settings.Save();
+        TraditionalToggled?.Invoke();
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => Close();

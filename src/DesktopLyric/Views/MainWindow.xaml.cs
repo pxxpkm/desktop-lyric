@@ -24,10 +24,9 @@ public partial class MainWindow : Window
     private string _lastRomajiInput = "";
     private string _lastRomajiOutput = ""; // cache so we don't hit google every 100ms
 
-    // smtc events exist but they're unreliable on some players, so poll
-    private readonly Stopwatch _sw = new();
-    private TimeSpan _basePos = TimeSpan.Zero;
-    private bool _isPlaying;
+    // Many players freeze SMTC Position while playing and only update it on pause/seek.
+    // Polling that stale value used to rewind the interpolator every 2s.
+    private readonly PlaybackClock _clock = new();
     private OverlayWindow? _overlay;
     private AppSettings _settings;
 
@@ -44,6 +43,7 @@ public partial class MainWindow : Window
         _syncTimer.Tick += (_, _) => SyncLyrics();
 
         ApplySettings();
+        ApplyTradButton();
     }
 
     private void ApplySettings()
@@ -63,7 +63,7 @@ public partial class MainWindow : Window
         try
         {
             _mgr = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-            _session = _mgr.GetCurrentSession();
+            BindSession(_mgr.GetCurrentSession());
 
             if (_session != null)
             {
@@ -83,12 +83,13 @@ public partial class MainWindow : Window
             {
                 Dispatcher.BeginInvoke(() =>
                 {
-                    _session = _mgr.GetCurrentSession();
+                    BindSession(_mgr.GetCurrentSession());
                     if (_session != null)
                     {
                         TxtStatus.Text = "connected";
                         StatusDot.Fill = new System.Windows.Media.SolidColorBrush(
                             System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
+                        PollNowPlaying();
                         _pollTimer.Start();
                         _syncTimer.Start();
                     }
@@ -113,12 +114,12 @@ public partial class MainWindow : Window
 
             if (!string.IsNullOrEmpty(title))
             {
-                TxtTitle.Text = title;
-                TxtArtist.Text = artist;
+                TxtTitle.Text = ToDisplay(title);
+                TxtArtist.Text = ToDisplay(artist);
 
                 // load album art
                 _ = LoadAlbumArt(props);
-                _overlay?.SetTrackInfo(title, artist);
+                _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
 
                 if (title != _lastTitle)
                 {
@@ -143,19 +144,53 @@ public partial class MainWindow : Window
                 }
             }
 
-            // playback position
+            RefreshClock();
+        }
+        catch { }
+    }
+
+    private void BindSession(GlobalSystemMediaTransportControlsSession? session)
+    {
+        if (_session != null)
+        {
+            try
+            {
+                _session.PlaybackInfoChanged -= OnPlaybackInfoChanged;
+                _session.TimelinePropertiesChanged -= OnTimelinePropertiesChanged;
+                _session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
+            }
+            catch { }
+        }
+
+        _session = session;
+        if (_session == null) return;
+
+        _session.PlaybackInfoChanged += OnPlaybackInfoChanged;
+        _session.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
+        _session.MediaPropertiesChanged += OnMediaPropertiesChanged;
+    }
+
+    private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, object args)
+        => Dispatcher.BeginInvoke(RefreshClock);
+
+    private void OnTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, object args)
+        => Dispatcher.BeginInvoke(RefreshClock);
+
+    private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, object args)
+        => Dispatcher.BeginInvoke(PollNowPlaying);
+
+    private void RefreshClock()
+    {
+        if (_session == null) return;
+        try
+        {
             var info = _session.GetPlaybackInfo();
-            _isPlaying = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-            if (_isPlaying)
-            {
-                var tl = _session.GetTimelineProperties();
-                _basePos = tl.Position;
-                _sw.Restart();
-            }
-            else
-            {
-                _sw.Stop();
-            }
+            var tl = _session.GetTimelineProperties();
+            var playing = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            var rate = info.PlaybackRate is > 0 and var r ? r : 1.0;
+            _clock.Apply(tl.Position, playing, rate);
+            if (!playing)
+                SyncLyrics();
         }
         catch { }
     }
@@ -184,9 +219,9 @@ public partial class MainWindow : Window
 
     private void SyncLyrics()
     {
-        if (_lines == null || _lines.Count == 0 || !_isPlaying) return;
+        if (_lines == null || _lines.Count == 0) return;
 
-        var pos = _basePos + _sw.Elapsed;
+        var pos = _clock.Position;
         TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
 
         // apply offset
@@ -202,23 +237,21 @@ public partial class MainWindow : Window
 
         if (idx >= 0)
         {
-            var text = _lines[idx].Text;
-            var trans = _lines[idx].TranslatedText;
-            if (_settings.ForceTraditional)
-            {
-                text = S2TConverter.Convert(text);
-                if (trans != null) trans = S2TConverter.Convert(trans);
-            }
+            var text = ToDisplay(_lines[idx].Text);
+            var trans = ToDisplay(_lines[idx].TranslatedText);
+            var prev = idx > 0 ? ToDisplay(_lines[idx - 1].Text) : "";
+            var next = idx < _lines.Count - 1 ? ToDisplay(_lines[idx + 1].Text) : "";
+            var words = ToDisplay(_lines[idx].WordTimings);
 
             TxtCurrent.Text = text;
             TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
-            TxtPrev.Text = idx > 0 ? _lines[idx - 1].Text : "";
-            TxtNext.Text = idx < _lines.Count - 1 ? _lines[idx + 1].Text : "";
+            TxtPrev.Text = prev;
+            TxtNext.Text = next;
 
             _overlay?.UpdateLyrics(text,
                 _settings.HideTranslation ? null : trans,
-                idx < _lines.Count - 1 ? _lines[idx + 1].Text : null,
-                _lines[idx].WordTimings,
+                string.IsNullOrEmpty(next) ? null : next,
+                words,
                 (lyricPos - _lines[idx].Time).TotalMilliseconds);
 
             // romaji
@@ -279,6 +312,21 @@ public partial class MainWindow : Window
         });
     }
 
+    private string ToDisplay(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return text ?? "";
+        return _settings.ForceTraditional ? S2TConverter.Convert(text) : text;
+    }
+
+    private List<KaraokeWordTiming>? ToDisplay(List<KaraokeWordTiming>? words)
+    {
+        if (words == null || words.Count == 0 || !_settings.ForceTraditional) return words;
+        var converted = new List<KaraokeWordTiming>(words.Count);
+        foreach (var w in words)
+            converted.Add(w with { Text = S2TConverter.Convert(w.Text) });
+        return converted;
+    }
+
     private static bool HasJapanese(string text)
     {
         foreach (var c in text)
@@ -310,6 +358,14 @@ public partial class MainWindow : Window
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
+    protected override void OnClosed(EventArgs e)
+    {
+        BindSession(null);
+        _pollTimer.Stop();
+        _syncTimer.Stop();
+        base.OnClosed(e);
+    }
+
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         // TODO: settings window, for now just open the json
@@ -328,13 +384,30 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ToggleTraditional_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.ForceTraditional = !_settings.ForceTraditional;
+        _settings.Save();
+        ApplyTradButton();
+        _overlay?.RefreshTradButton();
+    }
+
+    private void ApplyTradButton()
+    {
+        BtnTrad.Foreground = new System.Windows.Media.SolidColorBrush(
+            _settings.ForceTraditional
+                ? System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff)
+                : System.Windows.Media.Color.FromRgb(0xa0, 0xb0, 0xc0));
+    }
+
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)
     {
         if (_overlay == null || !_overlay.IsVisible)
         {
-            _overlay = new OverlayWindow();
+            _overlay = new OverlayWindow(_settings);
             _overlay.Opacity = _settings.OverlayOpacity / 100.0;
-            _overlay.SetTrackInfo(_lastTitle, TxtArtist.Text);
+            _overlay.SetTrackInfo(ToDisplay(_lastTitle), ToDisplay(TxtArtist.Text));
+            _overlay.TraditionalToggled += ApplyTradButton;
             _overlay.Closed += (_, _) => _overlay = null;
             _overlay.Show();
         }

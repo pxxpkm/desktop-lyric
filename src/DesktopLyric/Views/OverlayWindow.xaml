@@ -78,7 +78,7 @@
             </StackPanel>
 
             <!-- control bar (hidden until hover) -->
-            <Border Grid.Row="2" x:Name="ControlBar" Opacity="0"
+            <Border Grid.Row="2" x:Name="ControlBar" Opacity="0.55"
                     CornerRadius="10" Background="#10FFFFFF" Margin="8,0,8,4"
                     Padding="8,3">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
