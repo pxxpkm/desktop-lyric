@@ -13,11 +13,11 @@ public class LyricLineView : FrameworkElement
 {
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register(
         nameof(Text), typeof(string), typeof(LyricLineView),
-        new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutInvalidated));
 
     public static readonly DependencyProperty FontSizeProperty = DependencyProperty.Register(
         nameof(FontSize), typeof(double), typeof(LyricLineView),
-        new FrameworkPropertyMetadata(28.0, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(28.0, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutInvalidated));
 
     public static readonly DependencyProperty ForegroundProperty = DependencyProperty.Register(
         nameof(Foreground), typeof(Brush), typeof(LyricLineView),
@@ -29,11 +29,11 @@ public class LyricLineView : FrameworkElement
 
     public static readonly DependencyProperty SettingsFontProperty = DependencyProperty.Register(
         nameof(SettingsFont), typeof(string), typeof(LyricLineView),
-        new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutInvalidated));
 
     public static readonly DependencyProperty WordsProperty = DependencyProperty.Register(
         nameof(Words), typeof(IList<KaraokeWordTiming>), typeof(LyricLineView),
-        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutInvalidated));
 
     public static readonly DependencyProperty LineElapsedMsProperty = DependencyProperty.Register(
         nameof(LineElapsedMs), typeof(double), typeof(LyricLineView),
@@ -45,6 +45,14 @@ public class LyricLineView : FrameworkElement
 
     private string? _karaokeKey;
     private List<(string text, double x, double y, int start, int dur)>? _karaokeLayout;
+    private double _karaokeFs;
+
+    private static void OnLayoutInvalidated(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var view = (LyricLineView)d;
+        view._karaokeLayout = null;
+        view._karaokeKey = null;
+    }
 
     public string Text
     {
@@ -145,61 +153,125 @@ public class LyricLineView : FrameworkElement
         {
             var layout = EnsureKaraokeLayout(words, maxW, fs);
             var elapsed = double.IsNaN(LineElapsedMs) ? 0 : LineElapsedMs;
-            var drawFs = fs * FitScale(string.Concat(words.Take(80).Select(w => w.Text ?? "")), maxW);
             foreach (var (text, x, y, start, dur) in layout)
             {
                 var brush = KaraokeBrush(elapsed, start, dur);
-                var ft = CreateFormatted(text, brush, 0, drawFs);
+                var ft = CreateFormatted(text, brush, 0, _karaokeFs);
                 DrawVector(dc, ft, new Point(x, y), brush);
             }
             return;
         }
 
         var brushFill = IsCurrent ? AccentColorBrush() : Foreground;
-        var fit = IsCurrent ? FitScale(Text ?? "", maxW) : 1.0;
-        var body = CreateFormatted(Text ?? "", brushFill, IsCurrent ? 0 : maxW, fs * fit);
+        // Current line lives in a * row. Wrap at FontSize instead of shrinking
+        // to one line (FitScale cancelled 原±: drawn width is independent of FontSize).
+        var body = CreateFormatted(Text ?? "", brushFill, maxW, fs);
+        if (IsCurrent && body.Height > ActualHeight && ActualHeight > 8)
+        {
+            var scale = Math.Max(0.55, ActualHeight / body.Height);
+            body = CreateFormatted(Text ?? "", brushFill, maxW, fs * scale);
+        }
         var y0 = Math.Max(0, (ActualHeight - body.Height) / 2);
-        var x0 = IsCurrent ? Math.Max(0, (maxW - body.Width) / 2) : 0;
-        DrawVector(dc, body, new Point(x0, y0), brushFill);
+        DrawVector(dc, body, new Point(0, y0), brushFill);
     }
 
     private List<(string text, double x, double y, int start, int dur)> EnsureKaraokeLayout(
         IList<KaraokeWordTiming> words, double maxWidth, double fontSize)
     {
-        var scale = FitScale(string.Concat(words.Select(w => w.Text ?? "")), maxWidth);
-        var fs = fontSize * scale;
-        var key = $"{maxWidth:0.#}|{ActualHeight:0.#}|{fs:0.##}|{SettingsFont}|{FontHint()}|{words.Count}|{Text}";
+        var key = $"{maxWidth:0.#}|{ActualHeight:0.#}|{fontSize:0.##}|{SettingsFont}|{FontHint()}|{words.Count}|{Text}";
         if (_karaokeLayout != null && _karaokeKey == key)
             return _karaokeLayout;
 
         var unsung = Brushes.White;
-        var x = 0.0;
-        var pieces = new List<(string text, double w, int start, int dur)>();
         var n = Math.Min(words.Count, 80);
+        var pieces = new List<(string text, double w, int start, int dur)>(n);
+        double Measure(string piece, double size)
+        {
+            var ww = CreateFormatted(piece, unsung, 0, size).WidthIncludingTrailingWhitespace;
+            if (double.IsNaN(ww) || double.IsInfinity(ww)) return size;
+            return ww;
+        }
+
+        var fs = fontSize;
         for (int i = 0; i < n; i++)
         {
             var w = words[i];
             var piece = w.Text ?? "";
             if (piece.Length == 0) continue;
-            var ww = CreateFormatted(piece, unsung, 0, fs).WidthIncludingTrailingWhitespace;
-            if (double.IsNaN(ww) || double.IsInfinity(ww)) ww = fs;
-            pieces.Add((piece, ww, w.StartMs, Math.Max(0, w.DurationMs)));
-            x += ww;
+            pieces.Add((piece, Measure(piece, fs), w.StartMs, Math.Max(0, w.DurationMs)));
         }
 
-        var startX = Math.Max(0, (maxWidth - x) / 2);
-        var y = Math.Max(0, (ActualHeight - fs * 1.2) / 2);
-        if (double.IsNaN(y) || double.IsInfinity(y)) y = 0;
-        var layout = new List<(string, double, double, int, int)>(pieces.Count);
-        var cx = startX;
-        foreach (var (t, w, start, dur) in pieces)
+        var maxRows = ActualHeight >= fs * 2.15 ? 2 : 1;
+        var rows = PackKaraokeRows(pieces, maxWidth, maxRows);
+        var widest = 0.0;
+        foreach (var row in rows)
         {
-            layout.Add((t, cx, y, start, dur));
-            cx += w;
+            var rw = 0.0;
+            foreach (var p in row) rw += p.w;
+            if (rw > widest) widest = rw;
+        }
+        if (widest > maxWidth && widest > 0.001)
+        {
+            var scale = Math.Max(0.55, maxWidth / widest);
+            fs = fontSize * scale;
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                var p = pieces[i];
+                pieces[i] = (p.text, Measure(p.text, fs), p.start, p.dur);
+            }
+            rows = PackKaraokeRows(pieces, maxWidth, maxRows);
+        }
+
+        var lineH = fs * 1.2;
+        var blockH = rows.Count * lineH;
+        var y0 = Math.Max(0, (ActualHeight - blockH) / 2);
+        if (double.IsNaN(y0) || double.IsInfinity(y0)) y0 = 0;
+
+        var layout = new List<(string, double, double, int, int)>(pieces.Count);
+        for (int r = 0; r < rows.Count; r++)
+        {
+            var row = rows[r];
+            var rw = 0.0;
+            foreach (var p in row) rw += p.w;
+            var x = Math.Max(0, (maxWidth - rw) / 2);
+            var y = y0 + r * lineH;
+            foreach (var p in row)
+            {
+                layout.Add((p.text, x, y, p.start, p.dur));
+                x += p.w;
+            }
         }
         _karaokeKey = key;
         _karaokeLayout = layout;
+        _karaokeFs = fs;
         return layout;
+    }
+
+    private static List<List<(string text, double w, int start, int dur)>> PackKaraokeRows(
+        List<(string text, double w, int start, int dur)> pieces, double maxWidth, int maxRows)
+    {
+        var rows = new List<List<(string text, double w, int start, int dur)>>();
+        if (pieces.Count == 0)
+        {
+            rows.Add(new List<(string, double, int, int)>());
+            return rows;
+        }
+
+        var row = new List<(string text, double w, int start, int dur)>();
+        var rowW = 0.0;
+        foreach (var p in pieces)
+        {
+            if (row.Count > 0 && maxRows > 1 && rows.Count < maxRows - 1 && rowW + p.w > maxWidth)
+            {
+                rows.Add(row);
+                row = new List<(string, double, int, int)>();
+                rowW = 0;
+            }
+            row.Add(p);
+            rowW += p.w;
+        }
+        rows.Add(row);
+        return rows;
     }
 
     private Brush KaraokeBrush(double elapsed, int startMs, int durMs)
@@ -249,17 +321,6 @@ public class LyricLineView : FrameworkElement
         var fs = FontSize;
         if (double.IsNaN(fs) || double.IsInfinity(fs) || fs < 1) return 14;
         return Math.Clamp(fs, 8, 160);
-    }
-
-    private double FitScale(string text, double maxW)
-    {
-        if (maxW <= 1 || string.IsNullOrEmpty(text)) return 1;
-        var fs = SafeFontSize();
-        var probe = CreateFormatted(text, Brushes.White, 0, fs);
-        if (probe.WidthIncludingTrailingWhitespace <= maxW) return 1;
-        var scale = maxW / probe.WidthIncludingTrailingWhitespace;
-        if (double.IsNaN(scale) || double.IsInfinity(scale)) return 1;
-        return Math.Max(0.55, scale);
     }
 
     private void DrawVector(DrawingContext dc, FormattedText ft, Point origin, Brush fill)

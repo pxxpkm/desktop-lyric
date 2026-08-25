@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:DesktopLyric.Views"
         Title="Desktop Lyric"
+        Icon="pack://application:,,,/Assets/app.ico"
         Height="640" Width="460"
         WindowStartupLocation="CenterScreen"
         Background="Transparent"
@@ -210,7 +211,8 @@
                         <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
                     </Button.Resources>
                 </Button>
-                <Button Content="settings" Click="Settings_Click"
+                <Button Content="設定" Click="Settings_Click"
+                        ToolTip="顯示、overlay、字級、開機啟動"
                         Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">

@@ -25,6 +25,9 @@ public class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "DesktopLyric", "settings.json");
 
+    public static string FolderPath => Path.GetDirectoryName(SettingsPath)!;
+    public static string FilePath => SettingsPath;
+
     public static AppSettings Load()
     {
         try

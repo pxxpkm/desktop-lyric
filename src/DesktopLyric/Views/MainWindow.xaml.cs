@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
@@ -65,6 +64,16 @@ public partial class MainWindow : Window
         ApplySettings();
         ApplyTradButton();
         ApplyFontButton();
+        WireTray();
+    }
+
+    private void WireTray()
+    {
+        if (Application.Current is not App { Tray: { } tray }) return;
+        tray.ShowMainRequested += RestoreFromOverlay;
+        tray.ShowOverlayRequested += ShowOverlay;
+        tray.SettingsRequested += OpenSettings;
+        tray.ExitRequested += QuitApp;
     }
 
     private void ApplySettings()
@@ -502,22 +511,38 @@ public partial class MainWindow : Window
         Application.Current.Shutdown();
     }
 
+    private void OpenSettings() => Settings_Click(this, new RoutedEventArgs());
+
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
-        // TODO: settings window, for now just open the json
-        var path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DesktopLyric", "settings.json");
-        if (File.Exists(path))
+        try
         {
-            try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
-            catch { }
+            var win = new SettingsWindow(_settings);
+            if (IsVisible) win.Owner = this;
+            win.Topmost = true;
+            win.Changed += ApplySettingsLive;
+            try { win.ShowDialog(); }
+            finally { win.Changed -= ApplySettingsLive; }
         }
-        else
+        catch (Exception ex)
         {
-            _settings.Save();
-            MessageBox.Show($"settings saved to:\n{path}\n\nedit and restart to apply", "settings");
+            ErrorLog.Write(ex);
         }
+    }
+
+    private void ApplySettingsLive()
+    {
+        try
+        {
+            ApplySettings();
+            ApplyTradButton();
+            ApplyFontButton();
+            ApplyLineFonts(TxtCurrent.Text, TxtTrans.Text, TxtPrev.Text, TxtNext.Text);
+            _overlay?.RefreshAppearance();
+            _fullscreen?.RefreshAppearance();
+            SyncLyrics();
+        }
+        catch (Exception ex) { ErrorLog.Write(ex); }
     }
 
     private async void PickSong_Click(object sender, RoutedEventArgs e)

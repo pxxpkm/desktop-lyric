@@ -76,6 +76,17 @@ public partial class OverlayWindow : Window
         ApplyLineSizes();
     }
 
+    public void RefreshAppearance()
+    {
+        if (!WindowGuard.CanTouch(this) || _closed) return;
+        ApplyAccentColor();
+        ApplyTradButton();
+        ApplyTopmost();
+        ApplyFont();
+        Opacity = Math.Clamp(_settings.OverlayOpacity / 100.0, 0.35, 1);
+        RefreshFonts();
+    }
+
     private void ApplyTradButton()
     {
         BtnTrad.Foreground = _settings.ForceTraditional
@@ -141,6 +152,9 @@ public partial class OverlayWindow : Window
             WindowGuard.SetMaxHeight(OvTrans, sizes.TransMaxHeight);
             WindowGuard.SetFontSize(OvNext, sizes.NextFont);
             WindowGuard.SetMaxHeight(OvNext, sizes.NextMaxHeight);
+            OvCurrent.InvalidateVisual();
+            OvTrans.InvalidateVisual();
+            OvNext.InvalidateVisual();
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
         finally { _applyingSize = false; }
@@ -151,6 +165,7 @@ public partial class OverlayWindow : Window
     private void OnDrag(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
+        if (e.OriginalSource is System.Windows.Controls.Button) return;
         try { DragMove(); } catch { }
     }
 

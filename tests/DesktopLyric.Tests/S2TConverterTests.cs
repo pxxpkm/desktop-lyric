@@ -59,8 +59,42 @@ public class S2TConverterTests
             translationScale: 1.8);
         var used = s.CurrentFont * 1.28 + s.TransMaxHeight + s.NextMaxHeight;
         Assert.True(used <= 120 + 0.5, $"used {used} > 120");
-        Assert.True(120 - s.TransMaxHeight - s.NextMaxHeight >= 120 * 0.37, "original row crushed");
+        Assert.True(s.CurrentFont >= 18, $"original too small: {s.CurrentFont}");
         Assert.True(s.TransFont > s.CurrentFont, "Chinese translation should be larger than JP original at default-ish scales");
+    }
+
+    [Theory]
+    [InlineData(80)]
+    [InlineData(100)]
+    [InlineData(140)]
+    public void original_scale_up_increases_current_font(double area)
+    {
+        var a = LyricFonts.FitOverlaySizes(area, true, true, true, 1.0, 1.15);
+        var b = LyricFonts.FitOverlaySizes(area, true, true, true, 1.0 + LyricFonts.ScaleStep * 4, 1.15);
+        Assert.True(b.CurrentFont > a.CurrentFont + 2,
+            $"area {area}: {a.CurrentFont} -> {b.CurrentFont}");
+    }
+
+    [Theory]
+    [InlineData(80)]
+    [InlineData(100)]
+    [InlineData(140)]
+    public void translation_scale_up_increases_trans_font_and_maxheight(double area)
+    {
+        var a = LyricFonts.FitOverlaySizes(area, true, true, true, 1.0, 1.15);
+        var b = LyricFonts.FitOverlaySizes(area, true, true, true, 1.0, 1.15 + LyricFonts.ScaleStep * 4);
+        Assert.True(b.TransFont > a.TransFont + 2,
+            $"area {area} font: {a.TransFont} -> {b.TransFont}");
+        Assert.True(b.TransMaxHeight > a.TransMaxHeight + 2,
+            $"area {area} maxH: {a.TransMaxHeight} -> {b.TransMaxHeight}");
+    }
+
+    [Fact]
+    public void original_scale_down_decreases_current_font()
+    {
+        var a = LyricFonts.FitOverlaySizes(100, true, true, true, 1.0, 1.15);
+        var b = LyricFonts.FitOverlaySizes(100, true, true, true, 0.55, 1.15);
+        Assert.True(b.CurrentFont < a.CurrentFont - 2, $"{a.CurrentFont} -> {b.CurrentFont}");
     }
 
     [Fact]

@@ -4,6 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -15,6 +17,15 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DesktopLyric.Tests" />
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Drawing.Drawing2D" />
+    <Using Remove="System.Drawing.Imaging" />
+    <Using Remove="System.Drawing.Text" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
   </ItemGroup>
 
   <ItemGroup>

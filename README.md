@@ -35,6 +35,7 @@ Optional but recommended: put [Chiron GoRound TC](https://fonts.google.com/speci
 3. Overlay opens automatically; lyrics follow playback
 4. Use **選歌** if the wrong same-name track was matched
 5. **昭源圓體** cycles Chinese fonts; overlay A+/A− grows the window (and the type)
+6. **設定** opens a settings window (Traditional, overlay, type size, start with Windows)
 
 ## known limits
 

@@ -54,6 +54,15 @@ public partial class FullscreenWindow : Window
         ApplyLineSizes();
     }
 
+    public void RefreshAppearance()
+    {
+        if (!WindowGuard.CanTouch(this) || _closed) return;
+        ApplyAccent();
+        ApplyTradButton();
+        ApplyLayout();
+        RefreshFonts();
+    }
+
     public void RefreshTradButton() => ApplyTradButton();
 
     public void UpdateLyrics(string current, string? translated, string? next = null,
@@ -157,6 +166,9 @@ public partial class FullscreenWindow : Window
             WindowGuard.SetMaxHeight(FsTrans, sizes.TransMaxHeight);
             WindowGuard.SetFontSize(FsNext, sizes.NextFont);
             WindowGuard.SetMaxHeight(FsNext, sizes.NextMaxHeight);
+            FsCurrent.InvalidateVisual();
+            FsTrans.InvalidateVisual();
+            FsNext.InvalidateVisual();
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
         finally { _applyingSize = false; }

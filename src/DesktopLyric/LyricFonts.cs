@@ -104,8 +104,10 @@ public static class LyricFonts
         double TransMaxHeight, double NextMaxHeight);
 
     /// <summary>
-    /// Original vs translation sizes with a hard budget so Auto translation
-    /// cannot steal the current line's row (the "crush" bug).
+    /// Original vs translation sizes. Scale is applied to a comfortable base
+    /// so 原± / 譯± change the type before the shared height budget shrinks
+    /// both. Overflow is split proportionally so translation cannot crush the
+    /// current line (Auto row still gets TransMaxHeight).
     /// Default: Japanese original a bit smaller, Chinese translation a bit larger.
     /// </summary>
     public static OverlaySizes FitOverlaySizes(
@@ -127,38 +129,30 @@ public static class LyricFonts
         const double lineFactor = 1.28;
         var nextFont = hasNext ? Math.Clamp(area * 0.10, 10, Math.Min(28, fontCap * 0.35)) : 0;
         var nextH = hasNext ? nextFont * lineFactor : 0;
+        var budget = Math.Max(area - nextH, 24);
 
-        var curRatio = (originalIsJapanese ? 0.20 : 0.26) * originalScale;
-        var transRatio = (originalIsJapanese ? 0.28 : 0.20) * translationScale;
-        var wantCur = Math.Clamp(area * curRatio, 12, fontCap);
-        var wantTrans = hasTrans ? Math.Clamp(area * transRatio, 11, fontCap) : 0;
+        var baseCur = area * (originalIsJapanese ? 0.22 : 0.26);
+        var baseTrans = area * (originalIsJapanese ? 0.24 : 0.20);
+        var wantCur = Math.Clamp(baseCur * originalScale, 12, fontCap);
+        var wantTrans = hasTrans ? Math.Clamp(baseTrans * translationScale, 11, fontCap) : 0;
 
-        var transH = wantTrans * lineFactor;
         var curH = wantCur * lineFactor;
-        var currentMinH = area * 0.38;
-        var transMaxH = hasTrans ? area * 0.46 : 0;
-
-        if (hasTrans && transH > transMaxH)
+        var transH = wantTrans * lineFactor;
+        var used = curH + transH;
+        if (used > budget && used > 0.001)
         {
-            transH = transMaxH;
-            wantTrans = transH / lineFactor;
-        }
-
-        var leftover = area - transH - nextH;
-        if (leftover < currentMinH)
-        {
-            leftover = currentMinH;
-            transH = Math.Max(0, area - leftover - nextH);
+            var shrink = budget / used;
+            curH *= shrink;
+            transH *= shrink;
+            wantCur = curH / lineFactor;
             wantTrans = hasTrans ? transH / lineFactor : 0;
         }
-        if (curH > leftover)
-            wantCur = leftover / lineFactor;
 
         return new OverlaySizes(
             Math.Clamp(wantCur, 12, fontCap),
             hasTrans ? Math.Clamp(wantTrans, 10, fontCap) : 0,
             nextFont,
-            transH,
+            hasTrans ? transH : 0,
             nextH);
     }
 
