@@ -17,8 +17,25 @@ public static class LyricOffsetStore
     private static readonly object _lock = new();
 
     public const int StepMs = 50;
-    public const int MinMs = -10_000;
-    public const int MaxMs = 10_000;
+    public const int MediumStepMs = 250;
+    public const int FastStepMs = 1_000;
+    public const int MinMs = -300_000;
+    public const int MaxMs = 300_000;
+    public const int HoldDelayMs = 400;
+    public const int HoldAccelMs = 1_200;
+    public const int HoldFastMs = 2_500;
+
+    /// <summary>
+    /// Extra step while a ＋/− button is held. 0 until HoldDelayMs so the
+    /// initial MouseDown 50ms step is not immediately doubled.
+    /// </summary>
+    public static int StepForHoldMs(double heldMs)
+    {
+        if (heldMs < HoldDelayMs) return 0;
+        if (heldMs < HoldAccelMs) return StepMs;
+        if (heldMs < HoldFastMs) return MediumStepMs;
+        return FastStepMs;
+    }
 
     internal static void ResetForTests(string storePath)
     {

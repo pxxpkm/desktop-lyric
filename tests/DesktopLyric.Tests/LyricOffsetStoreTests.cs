@@ -51,7 +51,26 @@ public class LyricOffsetStoreTests : IDisposable
     {
         Assert.Equal(50, LyricOffsetStore.Nudge("a", "b", 50));
         Assert.Equal(100, LyricOffsetStore.Nudge("a", "b", 50));
-        Assert.Equal(LyricOffsetStore.MaxMs, LyricOffsetStore.Nudge("a", "b", 99_000));
+        Assert.Equal(LyricOffsetStore.MaxMs, LyricOffsetStore.Nudge("a", "b", 999_000));
+    }
+
+    [Fact]
+    public void allows_offsets_beyond_ten_seconds()
+    {
+        LyricOffsetStore.SetMs("a", "b", 15_000);
+        Assert.Equal(15_000, LyricOffsetStore.GetMs("a", "b"));
+        LyricOffsetStore.SetMs("a", "b", -90_000);
+        Assert.Equal(-90_000, LyricOffsetStore.GetMs("a", "b"));
+    }
+
+    [Fact]
+    public void hold_step_accelerates()
+    {
+        Assert.Equal(0, LyricOffsetStore.StepForHoldMs(0));
+        Assert.Equal(0, LyricOffsetStore.StepForHoldMs(LyricOffsetStore.HoldDelayMs - 1));
+        Assert.Equal(LyricOffsetStore.StepMs, LyricOffsetStore.StepForHoldMs(LyricOffsetStore.HoldDelayMs));
+        Assert.Equal(LyricOffsetStore.MediumStepMs, LyricOffsetStore.StepForHoldMs(LyricOffsetStore.HoldAccelMs));
+        Assert.Equal(LyricOffsetStore.FastStepMs, LyricOffsetStore.StepForHoldMs(LyricOffsetStore.HoldFastMs));
     }
 
     [Fact]
@@ -60,5 +79,7 @@ public class LyricOffsetStoreTests : IDisposable
         Assert.Equal("±0.00s", LyricOffsetStore.Format(0));
         Assert.Equal("+0.20s", LyricOffsetStore.Format(200));
         Assert.Equal("−0.05s", LyricOffsetStore.Format(-50));
+        Assert.Equal("+15.50s", LyricOffsetStore.Format(15_500));
+        Assert.Equal("−90.00s", LyricOffsetStore.Format(-90_000));
     }
 }

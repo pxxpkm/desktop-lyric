@@ -159,8 +159,11 @@
                         <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
                     </Button.Resources>
                 </Button>
-                <Button Content="−" Click="OffsetLater_Click"
-                        ToolTip="歌詞早咗：延遲 0.05 秒（呢首歌會記住）"
+                <Button Content="−"
+                        PreviewMouseLeftButtonDown="OffsetLater_Down"
+                        PreviewMouseLeftButtonUp="OffsetHold_Up"
+                        LostMouseCapture="OffsetHold_Up"
+                        ToolTip="歌詞早咗：延遲。撳一下 0.05s，長按加快（最多 ±5 分鐘）"
                         Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="10,7" FontSize="11" Cursor="Hand" Margin="3,3,0,3">
@@ -177,8 +180,11 @@
                         <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
                     </Button.Resources>
                 </Button>
-                <Button Content="＋" Click="OffsetEarlier_Click"
-                        ToolTip="歌詞遲咗：提早 0.05 秒（呢首歌會記住）"
+                <Button Content="＋"
+                        PreviewMouseLeftButtonDown="OffsetEarlier_Down"
+                        PreviewMouseLeftButtonUp="OffsetHold_Up"
+                        LostMouseCapture="OffsetHold_Up"
+                        ToolTip="歌詞遲咗：提早。撳一下 0.05s，長按加快（最多 ±5 分鐘）"
                         Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="10,7" FontSize="11" Cursor="Hand" Margin="0,3,3,3">

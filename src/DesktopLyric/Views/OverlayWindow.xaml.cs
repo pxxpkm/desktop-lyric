@@ -11,6 +11,7 @@ public partial class OverlayWindow : Window
     private AppSettings _settings;
     private bool _applyingSize;
     private bool _closed;
+    private HoldRepeat? _offsetHold;
 
     public event Action? TraditionalToggled;
     public event Action<int>? OffsetNudged;
@@ -27,6 +28,7 @@ public partial class OverlayWindow : Window
         ApplyTradButton();
         ApplyTopmost();
         ApplyFont();
+        _offsetHold = new HoldRepeat(delta => OffsetNudged?.Invoke(delta));
     }
 
     private void ApplyFont()
@@ -172,6 +174,8 @@ public partial class OverlayWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
+        _offsetHold?.Dispose();
+        _offsetHold = null;
         base.OnClosed(e);
     }
 
@@ -232,11 +236,20 @@ public partial class OverlayWindow : Window
         ApplyLineSizes();
     }
 
-    private void OnOffsetEarlier(object sender, RoutedEventArgs e)
-        => OffsetNudged?.Invoke(LyricOffsetStore.StepMs);
+    private void OnOffsetEarlierDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _offsetHold?.Down(1, sender as IInputElement);
+    }
 
-    private void OnOffsetLater(object sender, RoutedEventArgs e)
-        => OffsetNudged?.Invoke(-LyricOffsetStore.StepMs);
+    private void OnOffsetLaterDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _offsetHold?.Down(-1, sender as IInputElement);
+    }
+
+    private void OnOffsetHoldUp(object sender, MouseEventArgs e)
+        => _offsetHold?.Up();
 
     private void OnOffsetReset(object sender, RoutedEventArgs e)
         => OffsetNudged?.Invoke(int.MinValue);

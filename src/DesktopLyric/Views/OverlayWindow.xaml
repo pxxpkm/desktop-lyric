@@ -84,8 +84,11 @@
                     CornerRadius="10" Background="#10FFFFFF" Margin="8,0,8,4"
                     Padding="8,3">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="−" Click="OnOffsetLater" Style="{x:Null}"
-                            ToolTip="歌詞早咗：延遲顯示（呢首歌會記住）"
+                    <Button Content="−" Style="{x:Null}"
+                            PreviewMouseLeftButtonDown="OnOffsetLaterDown"
+                            PreviewMouseLeftButtonUp="OnOffsetHoldUp"
+                            LostMouseCapture="OnOffsetHoldUp"
+                            ToolTip="歌詞早咗：延遲顯示。撳一下 0.05s，長按加快（最多 ±5 分鐘）"
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="13" Cursor="Hand"
                             Width="24" Height="24" Margin="0,0,0,0"/>
@@ -93,9 +96,12 @@
                             ToolTip="重設呢首歌嘅時機微調"
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="11" Cursor="Hand"
-                            MinWidth="52" Height="24" Margin="0,0,0,0" Padding="2,0"/>
-                    <Button Content="＋" Click="OnOffsetEarlier" Style="{x:Null}"
-                            ToolTip="歌詞遲咗：提早顯示（呢首歌會記住）"
+                            MinWidth="68" Height="24" Margin="0,0,0,0" Padding="2,0"/>
+                    <Button Content="＋" Style="{x:Null}"
+                            PreviewMouseLeftButtonDown="OnOffsetEarlierDown"
+                            PreviewMouseLeftButtonUp="OnOffsetHoldUp"
+                            LostMouseCapture="OnOffsetHoldUp"
+                            ToolTip="歌詞遲咗：提早顯示。撳一下 0.05s，長按加快（最多 ±5 分鐘）"
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="13" Cursor="Hand"
                             Width="24" Height="24" Margin="0,0,6,0"/>

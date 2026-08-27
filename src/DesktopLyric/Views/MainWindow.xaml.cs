@@ -24,6 +24,8 @@ public partial class MainWindow : Window
     private string _lastTitle = "";
     private string _lastArtist = "";
     private int _trackOffsetMs;
+    private HoldRepeat? _offsetHold;
+    private DispatcherTimer? _offsetSave;
     private List<LrcLine> _lines = new();
     private string _lastRomajiInput = "";
     private string _lastRomajiOutput = ""; // cache so we don't hit google every 100ms
@@ -65,6 +67,7 @@ public partial class MainWindow : Window
         ApplyTradButton();
         ApplyFontButton();
         WireTray();
+        _offsetHold = new HoldRepeat(NudgeOffset);
     }
 
     private void WireTray()
@@ -486,11 +489,14 @@ public partial class MainWindow : Window
         BindSession(null);
         _pollTimer.Stop();
         _syncTimer.Stop();
+        FlushOffsetSave();
+        _offsetHold?.Dispose();
         base.OnClosing(e);
     }
 
     private void HideToOverlay()
     {
+        FlushOffsetSave();
         if (_fullscreen is not { IsVisible: true })
             ShowOverlay();
         ShowInTaskbar = false;
@@ -507,6 +513,9 @@ public partial class MainWindow : Window
 
     public void QuitApp()
     {
+        _offsetHold?.Dispose();
+        _offsetHold = null;
+        FlushOffsetSave();
         _forceClose = true;
         Application.Current.Shutdown();
     }
@@ -702,15 +711,28 @@ public partial class MainWindow : Window
 
     private void LoadTrackOffset()
     {
+        FlushOffsetSave();
         _trackOffsetMs = LyricOffsetStore.GetMs(_lastTitle, _lastArtist);
         RefreshOffsetUi();
     }
 
-    private void OffsetEarlier_Click(object sender, RoutedEventArgs e)
-        => NudgeOffset(LyricOffsetStore.StepMs);
+    private void OffsetEarlier_Down(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _offsetHold?.Down(1, sender as IInputElement);
+    }
 
-    private void OffsetLater_Click(object sender, RoutedEventArgs e)
-        => NudgeOffset(-LyricOffsetStore.StepMs);
+    private void OffsetLater_Down(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _offsetHold?.Down(-1, sender as IInputElement);
+    }
+
+    private void OffsetHold_Up(object sender, MouseEventArgs e)
+    {
+        _offsetHold?.Up();
+        FlushOffsetSave();
+    }
 
     private void OffsetReset_Click(object sender, RoutedEventArgs e)
         => NudgeOffset(int.MinValue);
@@ -721,9 +743,31 @@ public partial class MainWindow : Window
         _trackOffsetMs = delta == int.MinValue
             ? 0
             : Math.Clamp(_trackOffsetMs + delta, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
-        LyricOffsetStore.SetMs(_lastTitle, _lastArtist, _trackOffsetMs);
         RefreshOffsetUi();
         SyncLyrics();
+        ScheduleOffsetSave();
+    }
+
+    private void ScheduleOffsetSave()
+    {
+        _offsetSave ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _offsetSave.Tick -= SaveOffsetNow;
+        _offsetSave.Tick += SaveOffsetNow;
+        _offsetSave.Stop();
+        _offsetSave.Start();
+    }
+
+    private void SaveOffsetNow(object? sender, EventArgs e)
+    {
+        _offsetSave?.Stop();
+        if (!string.IsNullOrEmpty(_lastTitle))
+            LyricOffsetStore.SetMs(_lastTitle, _lastArtist, _trackOffsetMs);
+    }
+
+    private void FlushOffsetSave()
+    {
+        if (_offsetSave is { IsEnabled: true })
+            SaveOffsetNow(null, EventArgs.Empty);
     }
 
     private void RefreshOffsetUi()
