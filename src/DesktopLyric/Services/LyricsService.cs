@@ -1238,6 +1238,14 @@ public class LyricsService
                 sb.Append(stamp);
                 sb.AppendLine(line.TranslatedText);
             }
+            var hold = 0;
+            timing.Holds?.TryGetValue(LineKey(line), out hold);
+            if (hold != 0)
+            {
+                sb.Append("[dl_hold:");
+                sb.Append(hold);
+                sb.AppendLine("]");
+            }
         }
         return sb.ToString();
     }
@@ -1272,7 +1280,7 @@ public class LyricsService
         return (offset, rate);
     }
 
-    public readonly record struct ClipLyric(int AtMs, string Text, string? Trans = null);
+    public readonly record struct ClipLyric(int AtMs, string Text, string? Trans = null, int HoldMs = 0);
 
     public static List<ClipLyric> ParseClipboardLyrics(string raw, int fallbackStartMs)
     {
@@ -1287,7 +1295,11 @@ public class LyricsService
                 if (string.IsNullOrWhiteSpace(line.Text)) continue;
                 result.Add(new ClipLyric(EffectiveMs(line, null), line.Text, line.TranslatedText));
             }
-            if (result.Count > 0) return result;
+            if (result.Count > 0)
+            {
+                AttachHolds(raw, result);
+                return result;
+            }
         }
 
         var parts = new List<string>();
@@ -1313,6 +1325,50 @@ public class LyricsService
             at += 1_000;
         }
         return result;
+    }
+
+    private static void AttachHolds(string raw, List<ClipLyric> clips)
+    {
+        if (clips.Count == 0) return;
+        var used = new bool[clips.Count];
+        var current = -1;
+        TimeSpan? lastTime = null;
+        foreach (var rawLine in raw.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.StartsWith("[dl_hold:", StringComparison.OrdinalIgnoreCase))
+            {
+                var close = line.IndexOf(']');
+                var val = close > 9 ? line[9..close].Trim() : "";
+                if (current >= 0 && int.TryParse(val, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out var ms))
+                {
+                    ms = Math.Clamp(ms, LyricOffsetStore.HoldMinMs, LyricOffsetStore.HoldMaxMs);
+                    clips[current] = clips[current] with { HoldMs = ms };
+                }
+                continue;
+            }
+            var m = LrcRegex.Match(line);
+            if (!m.Success) continue;
+            var text = m.Groups[4].Value.Trim();
+            if (string.IsNullOrWhiteSpace(text) || IsLrcJunk(text)) continue;
+            var min = int.Parse(m.Groups[1].Value);
+            var sec = int.Parse(m.Groups[2].Value);
+            var msRaw = m.Groups[3].Value;
+            var stampMs = msRaw.Length == 2 ? int.Parse(msRaw) * 10 : int.Parse(msRaw);
+            var time = TimeSpan.FromMinutes(min) + TimeSpan.FromSeconds(sec) + TimeSpan.FromMilliseconds(stampMs);
+            if (lastTime == time) continue;
+            lastTime = time;
+            var at = (int)Math.Round(time.TotalMilliseconds);
+            current = -1;
+            for (int i = 0; i < clips.Count; i++)
+            {
+                if (used[i] || clips[i].AtMs != at) continue;
+                used[i] = true;
+                current = i;
+                break;
+            }
+        }
     }
 
     /// <summary>Original downloaded lyrics. Keeps whole-song offset/rate.</summary>
@@ -1342,13 +1398,20 @@ public class LyricsService
         if (clips.Count == 0)
             return new(off, r, null, null, cleared.Texts, null, null);
         var added = new List<AddedLyric>(clips.Count);
+        Dictionary<string, int>? holds = null;
         foreach (var clip in clips)
         {
             if (string.IsNullOrWhiteSpace(clip.Text)) continue;
-            added.Add(new AddedLyric(
-                clip.AtMs, clip.Text, Guid.NewGuid().ToString("N")[..8], clip.Trans));
+            var id = Guid.NewGuid().ToString("N")[..8];
+            added.Add(new AddedLyric(clip.AtMs, clip.Text, id, clip.Trans));
+            if (clip.HoldMs != 0)
+            {
+                holds ??= new();
+                holds[AddedKey(id)] = Math.Clamp(clip.HoldMs,
+                    LyricOffsetStore.HoldMinMs, LyricOffsetStore.HoldMaxMs);
+            }
         }
-        return new(off, r, null, null, cleared.Texts,
+        return new(off, r, null, holds, cleared.Texts,
             added.Count == 0 ? null : added, null);
     }
 

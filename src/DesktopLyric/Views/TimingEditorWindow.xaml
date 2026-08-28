@@ -258,7 +258,7 @@
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="匯出" Click="Export_Click"
-                                ToolTip="匯出 LRC（時間戳＋偏移＋快慢＋上原文下中文）"
+                                ToolTip="匯出 LRC（時間戳＋偏移＋快慢＋停留＋上原文下中文）"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="匯入" Click="Import_Click"

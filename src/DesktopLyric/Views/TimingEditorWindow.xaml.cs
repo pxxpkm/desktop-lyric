@@ -527,7 +527,7 @@ public partial class TimingEditorWindow : Window
         var prev = LyricsService.TimeOf(row.Line, t.Lines);
         TimeSpan? next = idx + 1 < lines.Count ? LyricsService.TimeOf(lines[idx + 1], t.Lines) : null;
         var at = LyricsService.PlacementMs(prev, next, LyricsService.EffectiveMs(row.Line, t.Lines) + 1000);
-        TryClipboard(LyricsService.FormatShownLrc([row.Line], t.Lines));
+        TryClipboard(LyricsService.FormatShownLrc([row.Line], t, headers: false));
         var nextTiming = LyricsService.DuplicateLine(t, row.Line, at);
         var newKey = nextTiming.Added is { Count: > 0 } added
             ? LyricsService.AddedKey(added[^1].Id)
@@ -577,7 +577,7 @@ public partial class TimingEditorWindow : Window
     private void CopySelectedText()
     {
         if (LstLines.SelectedItem is LineRow row)
-            TryClipboard(LyricsService.FormatShownLrc([row.Line], _getTiming().Lines));
+            TryClipboard(LyricsService.FormatShownLrc([row.Line], _getTiming(), headers: false));
         else
             CopyAll();
     }
@@ -603,6 +603,8 @@ public partial class TimingEditorWindow : Window
             var id = Guid.NewGuid().ToString("N")[..8];
             t = t.WithAdded(new AddedLyric(clip.AtMs, clip.Text, id, clip.Trans));
             lastKey = LyricsService.AddedKey(id);
+            if (clip.HoldMs != 0)
+                t = t.WithLineHold(lastKey, clip.HoldMs);
         }
         _apply(t);
         _listSig = "";

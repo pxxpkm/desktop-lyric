@@ -400,6 +400,29 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void format_and_parse_per_line_hold()
+    {
+        var line = new LrcLine(TimeSpan.FromSeconds(10), "held");
+        var key = LyricsService.LineKey(line);
+        var t = new TrackTiming(0, 1.0).WithLineHold(key, 2500);
+        var text = LyricsService.FormatShownLrc([line], t);
+        Assert.Contains("[dl_hold:2500]", text);
+
+        var clips = LyricsService.ParseClipboardLyrics(text, 0);
+        Assert.Single(clips);
+        Assert.Equal(2500, clips[0].HoldMs);
+
+        var src = new List<LrcLine> { new(TimeSpan.FromSeconds(1), "old") };
+        var imported = LyricsService.ReplaceShown(TrackTiming.Default, src, clips);
+        Assert.NotNull(imported.Holds);
+        Assert.Contains(imported.Holds, kv => kv.Value == 2500);
+        var shown = LyricsService.ApplyEdits(src, imported);
+        Assert.Single(shown);
+        Assert.Equal(TimeSpan.FromSeconds(19.5),
+            LyricsService.LineDisplayEnd(shown, 0, imported.Lines, imported.Holds));
+    }
+
+    [Fact]
     public void parse_timing_tags_and_replace_keeps_them()
     {
         var raw = "[offset:-1500]\n[dl_rate:1.015]\n[00:10.00]きみの声\n[00:10.00]你的聲音\n";
