@@ -139,13 +139,27 @@ public class LyricOffsetStoreTests : IDisposable
     }
 
     [Fact]
+    public void remembers_translation_override_and_added_trans()
+    {
+        var key = "1000|hello";
+        var t = TrackTiming.Default
+            .WithLineTrans(key, "你好")
+            .WithAdded(new AddedLyric(2000, "hey", "z1", "嘿"));
+        LyricOffsetStore.SetTiming("live", "yt", t);
+        var got = LyricOffsetStore.GetTiming("live", "yt");
+        Assert.Equal("你好", got.Trans![key]);
+        Assert.Equal("嘿", got.Added![0].Trans);
+    }
+
+    [Fact]
     public void without_line_clears_shift_hold_and_text()
     {
         var key = "1000|hello";
         var t = TrackTiming.Default
             .WithLineShift(key, 400)
             .WithLineHold(key, 2000)
-            .WithLineText(key, "x");
+            .WithLineText(key, "x")
+            .WithLineTrans(key, "中文");
         t = t.WithoutLine(key);
         Assert.True(t.IsIdentity);
     }

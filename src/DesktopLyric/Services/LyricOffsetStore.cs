@@ -199,7 +199,7 @@ public static class LyricOffsetStore
     }
 }
 
-public readonly record struct AddedLyric(int AtMs, string Text, string Id);
+public readonly record struct AddedLyric(int AtMs, string Text, string Id, string? Trans = null);
 
 public readonly record struct TrackTiming(
     int OffsetMs,
@@ -207,7 +207,8 @@ public readonly record struct TrackTiming(
     Dictionary<string, int>? Lines = null,
     Dictionary<string, int>? Holds = null,
     Dictionary<string, string>? Texts = null,
-    List<AddedLyric>? Added = null)
+    List<AddedLyric>? Added = null,
+    Dictionary<string, string>? Trans = null)
 {
     public static TrackTiming Default => new(0, 1.0);
 
@@ -217,7 +218,8 @@ public readonly record struct TrackTiming(
         && (Lines == null || Lines.Count == 0)
         && (Holds == null || Holds.Count == 0)
         && (Texts == null || Texts.Count == 0)
-        && (Added == null || Added.Count == 0);
+        && (Added == null || Added.Count == 0)
+        && (Trans == null || Trans.Count == 0);
 
     public TrackTiming Clamped() => new(
         Math.Clamp(OffsetMs, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs),
@@ -227,8 +229,9 @@ public readonly record struct TrackTiming(
             LyricOffsetStore.RateMax),
         CopyInts(Lines, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs),
         CopyInts(Holds, LyricOffsetStore.HoldMinMs, LyricOffsetStore.HoldMaxMs),
-        Texts is { Count: > 0 } ? new Dictionary<string, string>(Texts) : null,
-        Added is { Count: > 0 } ? [.. Added] : null);
+        CopyStrs(Texts),
+        Added is { Count: > 0 } ? [.. Added] : null,
+        CopyStrs(Trans));
 
     public TrackTiming WithLineShift(string key, int ms)
     {
@@ -236,7 +239,7 @@ public readonly record struct TrackTiming(
         ms = Math.Clamp(ms, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
         if (ms == 0) d.Remove(key);
         else d[key] = ms;
-        return new(OffsetMs, Rate, EmptyToNull(d), Holds, Texts, Added);
+        return new(OffsetMs, Rate, EmptyToNull(d), Holds, Texts, Added, Trans);
     }
 
     public TrackTiming WithLineHold(string key, int ms)
@@ -245,7 +248,7 @@ public readonly record struct TrackTiming(
         ms = Math.Clamp(ms, LyricOffsetStore.HoldMinMs, LyricOffsetStore.HoldMaxMs);
         if (ms == 0) d.Remove(key);
         else d[key] = ms;
-        return new(OffsetMs, Rate, Lines, EmptyToNull(d), Texts, Added);
+        return new(OffsetMs, Rate, Lines, EmptyToNull(d), Texts, Added, Trans);
     }
 
     /// <summary>
@@ -256,14 +259,25 @@ public readonly record struct TrackTiming(
         var d = Texts is { Count: > 0 } ? new Dictionary<string, string>(Texts) : new();
         if (text == null) d.Remove(key);
         else d[key] = text;
-        return new(OffsetMs, Rate, Lines, Holds, d.Count == 0 ? null : d, Added);
+        return new(OffsetMs, Rate, Lines, Holds, d.Count == 0 ? null : d, Added, Trans);
+    }
+
+    /// <summary>
+    /// Override Chinese/translation line. Empty string hides it. null removes the override.
+    /// </summary>
+    public TrackTiming WithLineTrans(string key, string? text)
+    {
+        var d = Trans is { Count: > 0 } ? new Dictionary<string, string>(Trans) : new();
+        if (text == null) d.Remove(key);
+        else d[key] = text;
+        return new(OffsetMs, Rate, Lines, Holds, Texts, Added, d.Count == 0 ? null : d);
     }
 
     public TrackTiming WithAdded(AddedLyric line)
     {
         var list = Added is { Count: > 0 } ? new List<AddedLyric>(Added) : [];
         list.Add(line);
-        return new(OffsetMs, Rate, Lines, Holds, Texts, list);
+        return new(OffsetMs, Rate, Lines, Holds, Texts, list, Trans);
     }
 
     public TrackTiming ReplaceAdded(string id, AddedLyric line)
@@ -281,19 +295,19 @@ public readonly record struct TrackTiming(
             else list.Add(a);
         }
         if (!found) list.Add(line);
-        return new(OffsetMs, Rate, Lines, Holds, Texts, list);
+        return new(OffsetMs, Rate, Lines, Holds, Texts, list, Trans);
     }
 
     public TrackTiming WithoutAdded(string id)
     {
         if (Added == null || Added.Count == 0) return this;
         var list = Added.Where(a => a.Id != id).ToList();
-        return new(OffsetMs, Rate, Lines, Holds, Texts, list.Count == 0 ? null : list);
+        return new(OffsetMs, Rate, Lines, Holds, Texts, list.Count == 0 ? null : list, Trans);
     }
 
     public TrackTiming WithoutLine(string key)
     {
-        var next = WithLineShift(key, 0).WithLineHold(key, 0).WithLineText(key, null);
+        var next = WithLineShift(key, 0).WithLineHold(key, 0).WithLineText(key, null).WithLineTrans(key, null);
         const string prefix = "add|";
         return key.StartsWith(prefix, StringComparison.Ordinal)
             ? next.WithoutAdded(key[prefix.Length..])
@@ -314,4 +328,7 @@ public readonly record struct TrackTiming(
 
     private static Dictionary<string, int>? EmptyToNull(Dictionary<string, int> d)
         => d.Count == 0 ? null : d;
+
+    private static Dictionary<string, string>? CopyStrs(Dictionary<string, string>? src)
+        => src is { Count: > 0 } ? new Dictionary<string, string>(src) : null;
 }

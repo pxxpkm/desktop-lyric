@@ -252,12 +252,24 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void duplicate_line_keeps_chinese_translation()
+    {
+        var line = new LrcLine(TimeSpan.FromSeconds(10), "夕暮れ") { TranslatedText = "黃昏" };
+        var t = LyricsService.DuplicateLine(TrackTiming.Default, line, 20_000);
+        Assert.Equal("黃昏", t.Added![0].Trans);
+        var shown = LyricsService.ApplyEdits([line], t);
+        Assert.Equal("黃昏", shown[1].TranslatedText);
+    }
+
+    [Fact]
     public void clipboard_plain_and_lrc()
     {
         var plain = LyricsService.ParseClipboardLyrics("hello\nworld", 3_000);
         Assert.Equal(2, plain.Count);
-        Assert.Equal((3000, "hello"), plain[0]);
-        Assert.Equal((4000, "world"), plain[1]);
+        Assert.Equal(3000, plain[0].AtMs);
+        Assert.Equal("hello", plain[0].Text);
+        Assert.Equal(4000, plain[1].AtMs);
+        Assert.Equal("world", plain[1].Text);
 
         var lrc = LyricsService.ParseClipboardLyrics("[00:10.00]a\n[00:12.50]b", 0);
         Assert.Equal(2, lrc.Count);
@@ -267,12 +279,42 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void clipboard_pairs_jp_then_cn_as_translation()
+    {
+        var lrc = LyricsService.ParseClipboardLyrics(
+            "[00:10.00]夕暮れ 駆け抜けた\n[00:10.00]在黃昏中奔馳而過\n[00:15.00]きみの声\n[00:15.00]你的聲音", 0);
+        Assert.Equal(2, lrc.Count);
+        Assert.Equal("夕暮れ 駆け抜けた", lrc[0].Text);
+        Assert.Equal("在黃昏中奔馳而過", lrc[0].Trans);
+        Assert.Equal("きみの声", lrc[1].Text);
+        Assert.Equal("你的聲音", lrc[1].Trans);
+
+        var plain = LyricsService.ParseClipboardLyrics("きみの声\n你的聲音", 1000);
+        Assert.Single(plain);
+        Assert.Equal("きみの声", plain[0].Text);
+        Assert.Equal("你的聲音", plain[0].Trans);
+    }
+
+    [Fact]
     public void format_shown_lrc_uses_effective_time()
     {
         var line = new LrcLine(TimeSpan.FromSeconds(10), "hello");
         var shifts = new Dictionary<string, int> { [LyricsService.LineKey(line)] = 1500 };
         var text = LyricsService.FormatShownLrc([line], shifts);
         Assert.Contains("[0:11.50]hello", text);
+    }
+
+    [Fact]
+    public void format_shown_lrc_writes_translation_on_same_stamp()
+    {
+        var line = new LrcLine(TimeSpan.FromSeconds(12), "夕暮れ 駆け抜けた")
+        {
+            TranslatedText = "在黃昏中奔馳而過",
+        };
+        var text = LyricsService.FormatShownLrc([line], null);
+        Assert.Equal(
+            "[0:12.00]夕暮れ 駆け抜けた\n[0:12.00]在黃昏中奔馳而過\n",
+            text.Replace("\r\n", "\n"));
     }
 
     [Fact]

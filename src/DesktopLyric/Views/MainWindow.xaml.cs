@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private Dictionary<string, int> _lineShifts = new();
     private Dictionary<string, int> _lineHolds = new();
     private Dictionary<string, string> _lineTexts = new();
+    private Dictionary<string, string> _lineTrans = new();
     private List<AddedLyric> _addedLines = new();
     private HoldRepeat? _offsetHold;
     private TimingEditorWindow? _timingEditor;
@@ -830,7 +831,8 @@ public partial class MainWindow : Window
             _lineShifts.Count == 0 ? null : new Dictionary<string, int>(_lineShifts),
             _lineHolds.Count == 0 ? null : new Dictionary<string, int>(_lineHolds),
             _lineTexts.Count == 0 ? null : new Dictionary<string, string>(_lineTexts),
-            _addedLines.Count == 0 ? null : [.. _addedLines]);
+            _addedLines.Count == 0 ? null : [.. _addedLines],
+            _lineTrans.Count == 0 ? null : new Dictionary<string, string>(_lineTrans));
 
     private void ApplyTimingState(TrackTiming timing)
     {
@@ -841,6 +843,7 @@ public partial class MainWindow : Window
         _lineHolds = timing.Holds is { Count: > 0 } ? new Dictionary<string, int>(timing.Holds) : new();
         _lineTexts = timing.Texts is { Count: > 0 } ? new Dictionary<string, string>(timing.Texts) : new();
         _addedLines = timing.Added is { Count: > 0 } ? [.. timing.Added] : [];
+        _lineTrans = timing.Trans is { Count: > 0 } ? new Dictionary<string, string>(timing.Trans) : new();
     }
 
     private void ApplyTiming(TrackTiming timing)
@@ -921,6 +924,7 @@ public partial class MainWindow : Window
             || _lineShifts.Count > 0
             || _lineHolds.Count > 0
             || _lineTexts.Count > 0
+            || _lineTrans.Count > 0
             || _addedLines.Count > 0;
         BtnOffset.Foreground = new System.Windows.Media.SolidColorBrush(
             custom
@@ -958,17 +962,12 @@ public partial class MainWindow : Window
         {
             try
             {
+                var shown = ShownLines();
                 var sb = new System.Text.StringBuilder();
                 sb.AppendLine($"[ti:{_lastTitle}]");
                 sb.AppendLine("[by:desktop-lyric]");
                 sb.AppendLine();
-                var shown = ShownLines();
-                foreach (var line in shown)
-                {
-                    if (string.IsNullOrWhiteSpace(line.Text)) continue;
-                    var t = LyricsService.TimeOf(line, _lineShifts);
-                    sb.AppendLine($"[{t.Minutes:D2}:{t.Seconds:D2}.{t.Milliseconds / 10:D2}]{line.Text}");
-                }
+                sb.Append(LyricsService.FormatShownLrc(shown, _lineShifts));
                 File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
                 MessageBox.Show($"saved {shown.Count} lines", "export");
             }

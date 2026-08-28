@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -5,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DesktopLyric.Services;
+using Microsoft.Win32;
 
 namespace DesktopLyric.Views;
 
@@ -84,8 +86,10 @@ public partial class TimingEditorWindow : Window
             foreach (var kv in t.Holds) shiftSum += kv.Value;
         if (t.Texts != null)
             foreach (var kv in t.Texts) shiftSum += kv.Value.Length;
+        if (t.Trans != null)
+            foreach (var kv in t.Trans) shiftSum += kv.Value.Length;
         shiftSum += t.Added?.Count ?? 0;
-        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{t.Holds?.Count ?? 0}|{t.Texts?.Count ?? 0}|{shiftSum}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
+        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{t.Holds?.Count ?? 0}|{t.Texts?.Count ?? 0}|{t.Trans?.Count ?? 0}|{shiftSum}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
         if (sig == _listSig && LstLines.Items.Count > 0) return;
         _listSig = sig;
         var keepKey = (LstLines.SelectedItem as LineRow)?.Key;
@@ -105,7 +109,8 @@ public partial class TimingEditorWindow : Window
             if (LyricsService.IsAddedKey(key)) mark += "  +";
             else if (t.Texts != null && t.Texts.ContainsKey(key)) mark += "  改";
             var row = new LineRow(line, key,
-                $"[{(int)shown.TotalMinutes}:{shown.Seconds:D2}.{shown.Milliseconds / 10:D2}]{mark}  {line.Text}");
+                $"[{(int)shown.TotalMinutes}:{shown.Seconds:D2}.{shown.Milliseconds / 10:D2}]{mark}  {line.Text}",
+                line.TranslatedText ?? "");
             LstLines.Items.Add(row);
             if (keepKey != null && key == keepKey) reselect = row;
         }
@@ -262,8 +267,18 @@ public partial class TimingEditorWindow : Window
 
     private void FillEditBox()
     {
-        if (TxtEdit == null || TxtEdit.IsKeyboardFocused) return;
-        TxtEdit.Text = LstLines.SelectedItem is LineRow row ? row.Line.Text : "";
+        if (TxtEdit == null) return;
+        if (TxtEdit.IsKeyboardFocused || TxtTrans?.IsKeyboardFocused == true) return;
+        if (LstLines.SelectedItem is LineRow row)
+        {
+            TxtEdit.Text = row.Line.Text;
+            if (TxtTrans != null) TxtTrans.Text = row.Line.TranslatedText ?? "";
+        }
+        else
+        {
+            TxtEdit.Text = "";
+            if (TxtTrans != null) TxtTrans.Text = "";
+        }
     }
 
     private void Slider_DragStarted(object sender, DragStartedEventArgs e) => _dragging = true;
@@ -400,23 +415,26 @@ public partial class TimingEditorWindow : Window
         if (LstLines.SelectedItem is not LineRow row) return;
         if (ChkFollow != null) ChkFollow.IsChecked = false;
         var text = (TxtEdit?.Text ?? "").Trim();
+        var trans = EmptyToNull((TxtTrans?.Text ?? "").Trim());
         var t = _getTiming();
         if (LyricsService.IsAddedKey(row.Key))
         {
             var id = LyricsService.AddedId(row.Key);
             var cur = t.Added?.FirstOrDefault(a => a.Id == id) ?? new AddedLyric(
-                (int)Math.Round(row.Line.Time.TotalMilliseconds), text, id);
+                (int)Math.Round(row.Line.Time.TotalMilliseconds), text, id, trans);
             if (string.IsNullOrWhiteSpace(text))
                 _apply(t.WithoutLine(row.Key));
             else
-                _apply(t.ReplaceAdded(id, cur with { Text = text }));
+                _apply(t.ReplaceAdded(id, cur with { Text = text, Trans = trans }));
         }
         else
         {
             var original = OriginalText(row);
-            _apply(string.Equals(text, original, StringComparison.Ordinal)
+            t = string.Equals(text, original, StringComparison.Ordinal)
                 ? t.WithLineText(row.Key, null)
-                : t.WithLineText(row.Key, text));
+                : t.WithLineText(row.Key, text);
+            t = t.WithLineTrans(row.Key, trans ?? "");
+            _apply(t);
         }
         _listSig = "";
         RebuildLines();
@@ -434,13 +452,17 @@ public partial class TimingEditorWindow : Window
     {
         if (ChkFollow != null) ChkFollow.IsChecked = false;
         var text = (TxtEdit?.Text ?? "").Trim();
+        var trans = EmptyToNull((TxtTrans?.Text ?? "").Trim());
         if (string.IsNullOrWhiteSpace(text) && LstLines.SelectedItem is LineRow row)
+        {
             text = row.Line.Text;
+            trans ??= EmptyToNull(row.Line.TranslatedText);
+        }
         if (string.IsNullOrWhiteSpace(text)) text = "…";
         var at = (int)Math.Round(_lyricPos().TotalMilliseconds);
         if (at < 0) at = 0;
         var id = Guid.NewGuid().ToString("N")[..8];
-        _apply(_getTiming().WithAdded(new AddedLyric(at, text, id)));
+        _apply(_getTiming().WithAdded(new AddedLyric(at, text, id, trans)));
         _listSig = "";
         RebuildLines();
         SelectKey(LyricsService.AddedKey(id));
@@ -482,7 +504,7 @@ public partial class TimingEditorWindow : Window
         var prev = LyricsService.TimeOf(row.Line, t.Lines);
         TimeSpan? next = idx + 1 < lines.Count ? LyricsService.TimeOf(lines[idx + 1], t.Lines) : null;
         var at = LyricsService.PlacementMs(prev, next, LyricsService.EffectiveMs(row.Line, t.Lines) + 1000);
-        TryClipboard(row.Line.Text);
+        TryClipboard(LyricsService.FormatShownLrc([row.Line], t.Lines));
         var nextTiming = LyricsService.DuplicateLine(t, row.Line, at);
         var newKey = nextTiming.Added is { Count: > 0 } added
             ? LyricsService.AddedKey(added[^1].Id)
@@ -532,7 +554,7 @@ public partial class TimingEditorWindow : Window
     private void CopySelectedText()
     {
         if (LstLines.SelectedItem is LineRow row)
-            TryClipboard(row.Line.Text);
+            TryClipboard(LyricsService.FormatShownLrc([row.Line], _getTiming().Lines));
         else
             CopyAll();
     }
@@ -546,12 +568,17 @@ public partial class TimingEditorWindow : Window
         var start = (int)Math.Round(_lyricPos().TotalMilliseconds);
         var parsed = LyricsService.ParseClipboardLyrics(raw, Math.Max(0, start));
         if (parsed.Count == 0) return;
+        ApplyClipLyrics(parsed);
+    }
+
+    private void ApplyClipLyrics(List<LyricsService.ClipLyric> parsed)
+    {
         var t = _getTiming();
         string? lastKey = null;
-        foreach (var (at, text) in parsed)
+        foreach (var clip in parsed)
         {
             var id = Guid.NewGuid().ToString("N")[..8];
-            t = t.WithAdded(new AddedLyric(at, text, id));
+            t = t.WithAdded(new AddedLyric(clip.AtMs, clip.Text, id, clip.Trans));
             lastKey = LyricsService.AddedKey(id);
         }
         _apply(t);
@@ -559,6 +586,43 @@ public partial class TimingEditorWindow : Window
         RebuildLines();
         if (lastKey != null) SelectKey(lastKey);
     }
+
+    private void Export_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Filter = "LRC files|*.lrc|All files|*.*",
+            FileName = $"{_title()}.lrc",
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            File.WriteAllText(dlg.FileName, LyricsService.FormatShownLrc(ShownSung(), _getTiming().Lines),
+                System.Text.Encoding.UTF8);
+        }
+        catch (Exception ex) { ErrorLog.Write(ex); }
+    }
+
+    private void Import_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "LRC files|*.lrc;*.txt|All files|*.*",
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            var raw = File.ReadAllText(dlg.FileName);
+            var parsed = LyricsService.ParseClipboardLyrics(raw, 0);
+            if (parsed.Count == 0) return;
+            if (ChkFollow != null) ChkFollow.IsChecked = false;
+            ApplyClipLyrics(parsed);
+        }
+        catch (Exception ex) { ErrorLog.Write(ex); }
+    }
+
+    private static string? EmptyToNull(string? s)
+        => string.IsNullOrWhiteSpace(s) ? null : s;
 
     private static void TryClipboard(string text)
     {
@@ -568,7 +632,7 @@ public partial class TimingEditorWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (TxtEdit?.IsKeyboardFocused == true) return;
+        if (TxtEdit?.IsKeyboardFocused == true || TxtTrans?.IsKeyboardFocused == true) return;
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
         var alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt);
@@ -652,7 +716,7 @@ public partial class TimingEditorWindow : Window
         base.OnClosed(e);
     }
 
-    private sealed record LineRow(LrcLine Line, string Key, string Display)
+    private sealed record LineRow(LrcLine Line, string Key, string Display, string Translation)
     {
         public override string ToString() => Display;
     }

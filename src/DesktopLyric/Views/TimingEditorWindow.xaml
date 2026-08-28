@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="時機編輯"
-        Height="700" Width="520"
+        Height="740" Width="520"
         WindowStartupLocation="CenterOwner"
         Background="Transparent"
         WindowStyle="None"
@@ -41,7 +41,7 @@
                            Foreground="#00d4ff" VerticalAlignment="Center"/>
             </DockPanel>
 
-            <TextBlock Grid.Row="1" Text="整首：偏移對齊開頭，快慢對齊 Live。單句：改詞、停留、對準。複製／上移下移或拖動列表調動。會記住呢首歌。"
+            <TextBlock Grid.Row="1" Text="版面同上原文下譯文。複製／匯出帶中文；匯入／貼上同一格式。會記住呢首歌。"
                        Foreground="#80A0B0C0" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
             <StackPanel Grid.Row="2" Margin="0,0,0,10">
@@ -94,6 +94,25 @@
                         </Setter>
                     </Style>
                 </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Display}" TextWrapping="Wrap" Foreground="#F0F0F5"/>
+                            <TextBlock Text="{Binding Translation}" TextWrapping="Wrap"
+                                       Foreground="#80C8E8" FontSize="11" Margin="0,3,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Translation}" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
             </ListBox>
 
             <StackPanel Grid.Row="4" Margin="0,12,0,0">
@@ -195,7 +214,16 @@
                              Background="#18FFFFFF" Foreground="#F0F0F5" BorderBrush="#22FFFFFF"
                              CaretBrush="#00d4ff" Padding="8,6" FontSize="12"
                              VerticalContentAlignment="Center"
-                             ToolTip="改選中句嘅字。Enter 套用。"
+                             ToolTip="改選中句原文（上排）。Enter 套用。"
+                             KeyDown="Edit_KeyDown"/>
+                </DockPanel>
+                <DockPanel Margin="0,6,0,0">
+                    <TextBlock Text="譯文" Foreground="#E8EEF4" FontSize="13" VerticalAlignment="Center" Width="52"/>
+                    <TextBox x:Name="TxtTrans"
+                             Background="#18FFFFFF" Foreground="#F0F0F5" BorderBrush="#22FFFFFF"
+                             CaretBrush="#00d4ff" Padding="8,6" FontSize="12"
+                             VerticalContentAlignment="Center"
+                             ToolTip="中文字幕（下排，同 overlay）。Enter 套用。"
                              KeyDown="Edit_KeyDown"/>
                 </DockPanel>
                 <DockPanel Margin="0,8,0,0">
@@ -206,7 +234,7 @@
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="複製" Click="Duplicate_Click"
-                                ToolTip="複製選中句，插喺後面。亦寫入剪貼簿。Ctrl+D"
+                                ToolTip="複製選中句（原文＋中文），插喺後面。亦寫入剪貼簿。Ctrl+D"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="上移" Click="MoveUp_Click"
@@ -222,11 +250,19 @@
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="複製全部" Click="CopyAll_Click"
-                                ToolTip="複製成 LRC 到剪貼簿。Ctrl+Shift+C"
+                                ToolTip="複製成上原文下譯文 LRC。Ctrl+Shift+C"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="貼上" Click="Paste_Click"
-                                ToolTip="從剪貼簿插入（純文字或 LRC）。Ctrl+V"
+                                ToolTip="從剪貼簿插入（LRC 上原文下譯文，或純文字）。Ctrl+V"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                        <Button Content="匯出" Click="Export_Click"
+                                ToolTip="匯出 LRC（上原文下中文，同 overlay）"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                        <Button Content="匯入" Click="Import_Click"
+                                ToolTip="匯入 LRC。同一時間戳兩行＝原文＋譯文"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                     </WrapPanel>

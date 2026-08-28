@@ -1097,17 +1097,25 @@ public class LyricsService
     {
         var result = new List<LrcLine>(src.Count + (timing.Added?.Count ?? 0));
         var texts = timing.Texts;
+        var trans = timing.Trans;
         foreach (var line in src)
         {
             var key = LineKey(line);
-            if (texts is { Count: > 0 } && texts.TryGetValue(key, out var repl))
+            string? textOv = null;
+            var hasText = texts is { Count: > 0 } && texts.TryGetValue(key, out textOv);
+            string? transOv = null;
+            var hasTrans = trans is { Count: > 0 } && trans.TryGetValue(key, out transOv);
+            if (hasText && string.IsNullOrWhiteSpace(textOv)) continue;
+            if (hasText || hasTrans)
             {
-                if (string.IsNullOrWhiteSpace(repl)) continue;
-                var copy = new LrcLine(line.Time, repl)
+                var copy = new LrcLine(line.Time, hasText ? textOv! : line.Text)
                 {
-                    TranslatedText = line.TranslatedText,
+                    TranslatedText = hasTrans
+                        ? (string.IsNullOrWhiteSpace(transOv) ? null : transOv)
+                        : line.TranslatedText,
                     Duration = line.Duration,
                     SourceKey = key,
+                    WordTimings = hasText ? null : line.WordTimings,
                 };
                 result.Add(copy);
             }
@@ -1124,6 +1132,7 @@ public class LyricsService
                 result.Add(new LrcLine(TimeSpan.FromMilliseconds(at), a.Text)
                 {
                     SourceKey = AddedKey(id),
+                    TranslatedText = string.IsNullOrWhiteSpace(a.Trans) ? null : a.Trans,
                 });
             }
         }
@@ -1160,7 +1169,7 @@ public class LyricsService
         {
             var id = AddedId(key);
             var cur = t.Added?.FirstOrDefault(a => a.Id == id)
-                ?? new AddedLyric(atMs, line.Text, id);
+                ?? new AddedLyric(atMs, line.Text, id, line.TranslatedText);
             return t.ReplaceAdded(id, cur with { AtMs = atMs }).WithLineShift(key, 0);
         }
         var baseMs = (int)Math.Round(line.Time.TotalMilliseconds);
@@ -1170,7 +1179,7 @@ public class LyricsService
     public static TrackTiming DuplicateLine(TrackTiming t, LrcLine line, int atMs)
     {
         var id = Guid.NewGuid().ToString("N")[..8];
-        t = t.WithAdded(new AddedLyric(atMs, line.Text, id));
+        t = t.WithAdded(new AddedLyric(atMs, line.Text, id, line.TranslatedText));
         var hold = 0;
         t.Holds?.TryGetValue(LineKey(line), out hold);
         if (hold != 0)
@@ -1178,45 +1187,68 @@ public class LyricsService
         return t;
     }
 
+    public static string FormatStamp(TimeSpan t)
+        => $"[{(int)t.TotalMinutes}:{t.Seconds:D2}.{t.Milliseconds / 10:D2}]";
+
+    /// <summary>
+    /// Overlay layout: original, then translation on the next line at the same stamp.
+    /// </summary>
     public static string FormatShownLrc(IReadOnlyList<LrcLine> lines, IReadOnlyDictionary<string, int>? shifts)
     {
         var sb = new System.Text.StringBuilder();
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line.Text)) continue;
-            var t = TimeOf(line, shifts);
-            sb.Append('[');
-            sb.Append((int)t.TotalMinutes);
-            sb.Append(':');
-            sb.Append(t.Seconds.ToString("D2"));
-            sb.Append('.');
-            sb.Append((t.Milliseconds / 10).ToString("D2"));
-            sb.Append(']');
+            var stamp = FormatStamp(TimeOf(line, shifts));
+            sb.Append(stamp);
             sb.AppendLine(line.Text);
+            if (!string.IsNullOrWhiteSpace(line.TranslatedText))
+            {
+                sb.Append(stamp);
+                sb.AppendLine(line.TranslatedText);
+            }
         }
         return sb.ToString();
     }
 
-    public static List<(int AtMs, string Text)> ParseClipboardLyrics(string raw, int fallbackStartMs)
+    public readonly record struct ClipLyric(int AtMs, string Text, string? Trans = null);
+
+    public static List<ClipLyric> ParseClipboardLyrics(string raw, int fallbackStartMs)
     {
-        var result = new List<(int, string)>();
+        var result = new List<ClipLyric>();
         if (string.IsNullOrWhiteSpace(raw)) return result;
         var lrc = ParseLrc(raw);
         if (lrc.Count > 0 && raw.Contains('[', StringComparison.Ordinal))
         {
+            SplitMixedLyrics(lrc);
             foreach (var line in lrc)
             {
                 if (string.IsNullOrWhiteSpace(line.Text)) continue;
-                result.Add((EffectiveMs(line, null), line.Text));
+                result.Add(new ClipLyric(EffectiveMs(line, null), line.Text, line.TranslatedText));
             }
             if (result.Count > 0) return result;
         }
-        var at = Math.Max(0, fallbackStartMs);
+
+        var parts = new List<string>();
         foreach (var rawLine in raw.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
         {
             var text = rawLine.Trim();
-            if (text.Length == 0) continue;
-            result.Add((at, text));
+            if (text.Length > 0) parts.Add(text);
+        }
+        var at = Math.Max(0, fallbackStartMs);
+        for (int i = 0; i < parts.Count;)
+        {
+            var a = parts[i];
+            if (i + 1 < parts.Count && !IsChineseOnly(a) && IsChineseOnly(parts[i + 1]))
+            {
+                result.Add(new ClipLyric(at, a, parts[i + 1]));
+                i += 2;
+            }
+            else
+            {
+                result.Add(new ClipLyric(at, a));
+                i++;
+            }
             at += 1_000;
         }
         return result;
