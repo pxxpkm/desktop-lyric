@@ -139,8 +139,8 @@ public class LrcParseTests
             new(TimeSpan.FromSeconds(50), "next verse"),
         };
         Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(10.5)));
-        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(18.5)));
-        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(20)));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(24)));
+        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(25)));
         Assert.True(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(50.2)));
     }
 
@@ -192,9 +192,9 @@ public class LrcParseTests
             new(TimeSpan.FromSeconds(10), "verse end"),
             new(TimeSpan.FromSeconds(40), "chorus"),
         };
-        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(18.5)));
-        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(20)));
-        Assert.False(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(20)));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(24)));
+        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(25)));
+        Assert.False(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(25)));
     }
 
     [Fact]
@@ -238,8 +238,8 @@ public class LrcParseTests
             new(TimeSpan.FromSeconds(50), "later"),
         };
         var holds = new Dictionary<string, int> { [LyricsService.LineKey(lines[0])] = 3000 };
-        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(21.5), holds: holds));
-        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(23), holds: holds));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(27), holds: holds));
+        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(28), holds: holds));
     }
 
     [Fact]
@@ -461,7 +461,7 @@ public class LrcParseTests
         Assert.Contains(imported.Holds, kv => kv.Value == 2500);
         var shown = LyricsService.ApplyEdits(src, imported);
         Assert.Single(shown);
-        Assert.Equal(TimeSpan.FromSeconds(21.5),
+        Assert.Equal(TimeSpan.FromSeconds(27),
             LyricsService.LineDisplayEnd(shown, 0, imported.Lines, imported.Holds));
     }
 

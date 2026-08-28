@@ -1045,7 +1045,7 @@ public class LyricsService
     /// Empty LRC stamps in between are not a cut.
     /// </summary>
     public const int ConsecutiveMs = 15_000;
-    public const int DefaultLineMs = 9_000;
+    public const int DefaultLineMs = 14_500;
     public const int HoldAfterMs = 400;
     public const int TransPairMs = 4_000;
 
