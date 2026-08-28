@@ -246,7 +246,7 @@ public partial class TimingEditorWindow : Window
 
     private void RefreshLabels()
     {
-        if (LblOffset == null || LblRate == null) return;
+        if (LblOffset == null || LblRate == null || SldOffset == null) return;
         LblOffset.Text = LyricOffsetStore.Format((int)SldOffset.Value);
         LblRate.Text = LyricOffsetStore.FormatRate(_getTiming().Rate);
         RefreshLineLabel();
@@ -313,8 +313,9 @@ public partial class TimingEditorWindow : Window
 
     private void Slider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        if (!_ready) return;
         RefreshLabels();
-        if (!_ready || _syncing || _dragging) return;
+        if (_syncing || _dragging) return;
         Commit();
     }
 

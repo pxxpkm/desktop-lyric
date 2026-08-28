@@ -54,6 +54,7 @@ public partial class OverlayWindow : Window
 
     public void SetTrackInfo(string title, string artist)
     {
+        if (!WindowGuard.CanTouch(this) || _closed) return;
         OvTrackTitle.Text = title ?? "";
         OvTrackArtist.Text = artist ?? "";
     }

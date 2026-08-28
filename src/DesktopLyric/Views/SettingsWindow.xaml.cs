@@ -168,8 +168,9 @@ public partial class SettingsWindow : Window
 
     private void Slider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        if (!_ready) return;
         RefreshSliderLabels();
-        if (!_ready || _dragging) return;
+        if (_dragging) return;
         CommitSliders();
     }
 

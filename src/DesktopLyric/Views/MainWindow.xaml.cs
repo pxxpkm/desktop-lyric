@@ -43,12 +43,22 @@ public partial class MainWindow : Window
     private OverlayWindow? _overlay;
     private FullscreenWindow? _fullscreen;
     private ImageSource? _albumArt;
+    private string _lastArtKey = "";
     private bool _overlayHiddenForFullscreen;
     private AppSettings _settings;
     private bool _forceClose;
     private int _karaokeLineIdx = -1;
     private List<KaraokeWordTiming>? _karaokeWords;
     private List<KaraokeWordTiming>? _karaokeSrc;
+    private List<LrcLine>? _shown;
+    private string _romajiInFlight = "";
+    private int _pollGen;
+    private int _artGen;
+    private bool _clockQueued;
+    private bool _pollQueued;
+    private TimeSpan? _trackDuration;
+    private GlobalSystemMediaTransportControlsSessionPlaybackInfo? _heldPlayback;
+    private GlobalSystemMediaTransportControlsSessionTimelineProperties? _heldTimeline;
 
     public MainWindow()
     {
@@ -107,38 +117,15 @@ public partial class MainWindow : Window
         try
         {
             _mgr = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            if (_forceClose)
+            {
+                WinRtLifetime.Suppress(_mgr);
+                _mgr = null;
+                return;
+            }
             BindSession(_mgr.GetCurrentSession());
-
-            if (_session != null)
-            {
-                TxtStatus.Text = "connected";
-                StatusDot.Fill = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
-                PollNowPlaying();
-                _pollTimer.Start();
-                _syncTimer.Start();
-            }
-            else
-            {
-                TxtStatus.Text = "no media session — play something";
-            }
-
-            _mgr.CurrentSessionChanged += (_, _) =>
-            {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    BindSession(_mgr.GetCurrentSession());
-                    if (_session != null)
-                    {
-                        TxtStatus.Text = "connected";
-                        StatusDot.Fill = new System.Windows.Media.SolidColorBrush(
-                            System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
-                        PollNowPlaying();
-                        _pollTimer.Start();
-                        _syncTimer.Start();
-                    }
-                });
-            };
+            ApplySessionUi();
+            _mgr.CurrentSessionChanged += OnCurrentSessionChanged;
         }
         catch (Exception ex)
         {
@@ -148,12 +135,50 @@ public partial class MainWindow : Window
         ShowOverlay();
     }
 
+    private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, object args)
+    {
+        WinRtLifetime.Suppress(args);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_forceClose || _mgr == null) return;
+            try
+            {
+                BindSession(_mgr.GetCurrentSession());
+                ApplySessionUi();
+            }
+            catch (Exception ex) { ErrorLog.Write(ex); }
+        });
+    }
+
+    private void ApplySessionUi()
+    {
+        if (_session != null)
+        {
+            TxtStatus.Text = "connected";
+            StatusDot.Fill = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
+            PollNowPlaying();
+            _pollTimer.Start();
+            _syncTimer.Start();
+        }
+        else
+        {
+            TxtStatus.Text = "no media session — play something";
+        }
+    }
+
     private async void PollNowPlaying()
     {
-        if (_session == null) return;
+        if (_session == null || _forceClose) return;
+        var gen = ++_pollGen;
         try
         {
             var props = await _session.TryGetMediaPropertiesAsync();
+            if (gen != _pollGen || _forceClose)
+            {
+                WinRtLifetime.Suppress(props);
+                return;
+            }
             if (props == null) return;
             try
             {
@@ -165,7 +190,13 @@ public partial class MainWindow : Window
                     TxtTitle.Text = ToDisplay(title);
                     TxtArtist.Text = ToDisplay(artist);
 
-                    await LoadAlbumArt(props);
+                    var artKey = title + "\n" + artist;
+                    if (artKey != _lastArtKey || _albumArt == null)
+                    {
+                        await LoadAlbumArt(props);
+                        if (_forceClose) return;
+                        _lastArtKey = artKey;
+                    }
                     _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
                     _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
 
@@ -173,6 +204,8 @@ public partial class MainWindow : Window
                     var artistFilled = !titleChanged
                         && string.IsNullOrEmpty(_lastArtist)
                         && !string.IsNullOrEmpty(artist);
+                    if (titleChanged) _trackDuration = null;
+                    RefreshClock();
                     if (titleChanged || artistFilled)
                     {
                         _lastTitle = title;
@@ -189,26 +222,24 @@ public partial class MainWindow : Window
 
                         var requestedTitle = title;
                         var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
-                        if (_lastTitle != requestedTitle) return;
+                        if (_forceClose || _lastTitle != requestedTitle) return;
                         if (result == null) return; // cancelled (user picked another candidate, or a newer search)
                         if (result.Count > 0)
                         {
-                            _lines = result;
-                            ResetKaraokeCache();
+                            SetLines(result);
                             TxtCurrent.Text = "♪";
                         }
                         else
                         {
-                            _lines = new();
-                            ResetKaraokeCache();
+                            SetLines([]);
                             TxtCurrent.Text = "no lyrics found";
                         }
                     }
                 }
-
-                RefreshClock();
+                else
+                    RefreshClock();
             }
-            finally { WinRtLifetime.Release(props); }
+            finally { WinRtLifetime.Suppress(props); }
         }
         catch { }
     }
@@ -221,7 +252,7 @@ public partial class MainWindow : Window
             {
                 if (_session.SourceAppUserModelId == session.SourceAppUserModelId)
                 {
-                    WinRtLifetime.Release(session);
+                    WinRtLifetime.Suppress(session);
                     return;
                 }
             }
@@ -237,9 +268,10 @@ public partial class MainWindow : Window
                 _session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
             }
             catch { }
-            WinRtLifetime.Release(_session);
+            WinRtLifetime.Suppress(_session);
         }
 
+        DropHeldSmtc();
         _session = session;
         if (_session == null) return;
 
@@ -249,17 +281,50 @@ public partial class MainWindow : Window
     }
 
     private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, object args)
-        => Dispatcher.BeginInvoke(RefreshClock);
+    {
+        WinRtLifetime.Suppress(args);
+        QueueRefreshClock();
+    }
 
     private void OnTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, object args)
-        => Dispatcher.BeginInvoke(RefreshClock);
+    {
+        WinRtLifetime.Suppress(args);
+        QueueRefreshClock();
+    }
 
     private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, object args)
-        => Dispatcher.BeginInvoke(PollNowPlaying);
+    {
+        WinRtLifetime.Suppress(args);
+        QueuePollNowPlaying();
+    }
+
+    private void QueueRefreshClock()
+    {
+        if (_clockQueued || _forceClose) return;
+        _clockQueued = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _clockQueued = false;
+            if (_forceClose || _session == null) return;
+            RefreshClock();
+        });
+    }
+
+    private void QueuePollNowPlaying()
+    {
+        if (_pollQueued || _forceClose) return;
+        _pollQueued = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _pollQueued = false;
+            if (_forceClose || _session == null) return;
+            PollNowPlaying();
+        });
+    }
 
     private void RefreshClock()
     {
-        if (_session == null) return;
+        if (_session == null || _forceClose) return;
         GlobalSystemMediaTransportControlsSessionPlaybackInfo? info = null;
         GlobalSystemMediaTransportControlsSessionTimelineProperties? tl = null;
         try
@@ -269,23 +334,44 @@ public partial class MainWindow : Window
             var playing = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             var rate = info.PlaybackRate is > 0 and var r ? r : 1.0;
             _clock.Apply(tl.Position, playing, rate);
+            var dur = tl.EndTime - tl.StartTime;
+            _trackDuration = dur >= TimeSpan.FromSeconds(12) ? dur : null;
             if (!playing)
                 SyncLyrics();
         }
         catch { }
         finally
         {
-            WinRtLifetime.Release(info);
-            WinRtLifetime.Release(tl);
+            HoldSmtc(ref _heldPlayback, info);
+            HoldSmtc(ref _heldTimeline, tl);
             GC.KeepAlive(_session);
         }
     }
 
+    private static void HoldSmtc<T>(ref T? slot, T? next) where T : class
+    {
+        var prev = slot;
+        slot = next;
+        if (!ReferenceEquals(prev, next))
+            WinRtLifetime.Suppress(prev);
+    }
+
+    private void DropHeldSmtc()
+    {
+        WinRtLifetime.Suppress(_heldPlayback);
+        WinRtLifetime.Suppress(_heldTimeline);
+        _heldPlayback = null;
+        _heldTimeline = null;
+        _trackDuration = null;
+    }
+
     private async Task LoadAlbumArt(GlobalSystemMediaTransportControlsSessionMediaProperties props)
     {
+        IRandomAccessStreamReference? thumb = null;
+        IRandomAccessStream? stream = null;
         try
         {
-            var thumb = props.Thumbnail;
+            thumb = props.Thumbnail;
             if (thumb == null)
             {
                 _albumArt = null;
@@ -293,14 +379,28 @@ public partial class MainWindow : Window
                 _fullscreen?.SetAlbumArt(null);
                 return;
             }
-            var stream = await thumb.OpenReadAsync();
+            var artGen = ++_artGen;
+            stream = await thumb.OpenReadAsync();
             using var ms = new MemoryStream();
+            var transferred = false;
             try
             {
-                using var inp = stream.AsStreamForRead();
-                await inp.CopyToAsync(ms);
+                // AsStreamForRead takes ownership and Closes the WinRT stream.
+                // A second Dispose heap-corrupts ntdll (0xc0000374).
+                using (var inp = stream.AsStreamForRead())
+                {
+                    transferred = true;
+                    await inp.CopyToAsync(ms);
+                }
             }
-            finally { WinRtLifetime.Release(stream); }
+            finally
+            {
+                if (transferred)
+                {
+                    WinRtLifetime.Suppress(stream);
+                    stream = null;
+                }
+            }
             ms.Position = 0;
             var bmp = new BitmapImage();
             bmp.BeginInit();
@@ -308,9 +408,9 @@ public partial class MainWindow : Window
             bmp.CacheOption = BitmapCacheOption.OnLoad;
             bmp.EndInit();
             bmp.Freeze();
-            Dispatcher.BeginInvoke(() =>
+            _ = Dispatcher.BeginInvoke(() =>
             {
-                if (!IsLoaded) return;
+                if (_forceClose || !IsLoaded || artGen != _artGen) return;
                 _albumArt = bmp;
                 AlbumArt.Source = bmp;
                 if (WindowGuard.CanTouch(_fullscreen))
@@ -318,6 +418,12 @@ public partial class MainWindow : Window
             });
         }
         catch { }
+        finally
+        {
+            if (stream != null)
+                WinRtLifetime.Release(stream);
+            WinRtLifetime.Suppress(thumb);
+        }
     }
 
     private void SafeUpdateLyrics(string current, string? translated, string? next,
@@ -342,7 +448,9 @@ public partial class MainWindow : Window
         }
 
         var pos = _clock.Position;
-        TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
+        var timeText = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
+        if (TxtTime.Text != timeText)
+            TxtTime.Text = timeText;
 
         var lyricPos = LyricClockPos();
         var lines = ShownLines();
@@ -409,7 +517,19 @@ public partial class MainWindow : Window
     }
 
     private List<LrcLine> ShownLines()
-        => LyricsService.ApplyEdits(_lines, CurrentTiming());
+        => _shown ??= LyricsService.ApplyEdits(_lines, CurrentTiming());
+
+    private void SetLines(List<LrcLine> lines)
+    {
+        _lines = lines ?? [];
+        InvalidateLyricCache();
+    }
+
+    private void InvalidateLyricCache()
+    {
+        _shown = null;
+        ResetKaraokeCache();
+    }
 
     private string? NextLyricText(IReadOnlyList<LrcLine> lines, int afterIdx)
     {
@@ -433,6 +553,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (text == _romajiInFlight) return;
+        _romajiInFlight = text;
         var input = text;
         _ = Task.Run(async () =>
         {
@@ -522,19 +644,7 @@ public partial class MainWindow : Window
         return converted;
     }
 
-    private TimeSpan? GetTrackDuration()
-    {
-        if (_session == null) return null;
-        GlobalSystemMediaTransportControlsSessionTimelineProperties? tl = null;
-        try
-        {
-            tl = _session.GetTimelineProperties();
-            var dur = tl.EndTime - tl.StartTime;
-            return dur >= TimeSpan.FromSeconds(12) ? dur : null;
-        }
-        catch { return null; }
-        finally { WinRtLifetime.Release(tl); }
-    }
+    private TimeSpan? GetTrackDuration() => _trackDuration;
 
     // --- UI handlers ---
 
@@ -555,13 +665,9 @@ public partial class MainWindow : Window
             HideToOverlay();
             return;
         }
-        BindSession(null);
-        _pollTimer.Stop();
-        _syncTimer.Stop();
+        StopSmtc();
         FlushOffsetSave();
         _offsetHold?.Dispose();
-        WinRtLifetime.Release(_mgr);
-        _mgr = null;
         base.OnClosing(e);
     }
 
@@ -585,11 +691,26 @@ public partial class MainWindow : Window
     public void QuitApp()
     {
         if (_forceClose) return;
+        _forceClose = true;
+        StopSmtc();
         _offsetHold?.Dispose();
         _offsetHold = null;
         FlushOffsetSave();
-        _forceClose = true;
         Application.Current.Shutdown();
+    }
+
+    private void StopSmtc()
+    {
+        _pollTimer.Stop();
+        _syncTimer.Stop();
+        if (_mgr != null)
+        {
+            try { _mgr.CurrentSessionChanged -= OnCurrentSessionChanged; }
+            catch { }
+        }
+        BindSession(null);
+        WinRtLifetime.Suppress(_mgr);
+        _mgr = null;
     }
 
     private void OpenSettings() => Settings_Click(this, new RoutedEventArgs());
@@ -655,8 +776,7 @@ public partial class MainWindow : Window
         if (lines == null) return;
         if (lines.Count > 0)
         {
-            _lines = lines;
-            ResetKaraokeCache();
+            SetLines(lines);
             TxtCurrent.Text = "♪";
             TxtStatus.Text = $"歌詞：{win.Chosen.Title} · {win.Chosen.Source}";
         }
@@ -676,8 +796,7 @@ public partial class MainWindow : Window
         if (result == null) return;
         if (result.Count > 0)
         {
-            _lines = result;
-            ResetKaraokeCache();
+            SetLines(result);
             TxtCurrent.Text = "♪";
         }
     }
@@ -705,9 +824,7 @@ public partial class MainWindow : Window
         ApplyTradButton();
         _overlay?.RefreshTradButton();
         _fullscreen?.RefreshTradButton();
-        _karaokeLineIdx = -1;
-        _karaokeWords = null;
-        _karaokeSrc = null;
+        ResetKaraokeCache();
     }
 
     private void ApplyTradButton()
@@ -843,6 +960,7 @@ public partial class MainWindow : Window
         _lineTexts = timing.Texts is { Count: > 0 } ? new Dictionary<string, string>(timing.Texts) : new();
         _addedLines = timing.Added is { Count: > 0 } ? [.. timing.Added] : [];
         _lineTrans = timing.Trans is { Count: > 0 } ? new Dictionary<string, string>(timing.Trans) : new();
+        InvalidateLyricCache();
     }
 
     private void ApplyTiming(TrackTiming timing)
