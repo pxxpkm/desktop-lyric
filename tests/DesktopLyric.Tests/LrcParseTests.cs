@@ -171,6 +171,33 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void stretched_consecutive_singing_does_not_blank_before_next()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(10), "held"),
+            new(TimeSpan.FromSeconds(20), "next"),
+        };
+        Assert.Equal(TimeSpan.FromSeconds(20), LyricsService.LineDisplayEnd(lines, 0));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(17)));
+        Assert.False(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(17)));
+        Assert.True(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(20.2)));
+    }
+
+    [Fact]
+    public void chorus_gap_still_clears_after_default_hold()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(10), "verse end"),
+            new(TimeSpan.FromSeconds(40), "chorus"),
+        };
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(16.5)));
+        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(18)));
+        Assert.False(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(18)));
+    }
+
+    [Fact]
     public void extra_hold_keeps_line_past_the_next_stamp()
     {
         var lines = new List<LrcLine>

@@ -1037,12 +1037,14 @@ public class LyricsService
     }
 
     /// <summary>
-    /// Keep a sung line until the next non-empty lyric when they are close
-    /// (verse / 間句). Empty LRC stamps in between are not treated as a
-    /// cut. Only a long wait until the next lyric (intro / instrumental)
-    /// clears the screen, and only after DefaultLineMs.
+    /// ConsecutiveMs: still 連唱 — hold this line until the next stamp
+    /// (no blank). Extra 停留 widens this window so a stretched live note
+    /// is not treated as a chorus gap.
+    /// DefaultLineMs: 副歌切換 / instrumental — next stamp is farther,
+    /// so drop the previous section after this hold.
+    /// Empty LRC stamps in between are not a cut.
     /// </summary>
-    public const int ConsecutiveMs = 7_000;
+    public const int ConsecutiveMs = 15_000;
     public const int DefaultLineMs = 7_000;
     public const int HoldAfterMs = 400;
 
@@ -1444,10 +1446,13 @@ public class LyricsService
         var start = TimeOf(line, shifts);
         var nextSung = NextSungIndex(lines, idx);
         var next = nextSung >= 0 ? TimeOf(lines[nextSung], shifts) : TimeSpan.MaxValue;
+        var extra = 0;
+        holds?.TryGetValue(LineKey(line), out extra);
+        var linkMs = ConsecutiveMs + Math.Max(0, extra);
 
         TimeSpan end;
         if (next < TimeSpan.MaxValue
-            && (next - start).TotalMilliseconds <= ConsecutiveMs)
+            && (next - start).TotalMilliseconds <= linkMs)
             end = next;
         else
         {
@@ -1467,8 +1472,6 @@ public class LyricsService
             end = next < hold ? next : hold;
         }
 
-        var extra = 0;
-        holds?.TryGetValue(LineKey(line), out extra);
         if (extra != 0)
         {
             end += TimeSpan.FromMilliseconds(extra);
