@@ -1130,6 +1130,98 @@ public class LyricsService
         return result.Count > 1 ? result.OrderBy(l => l.Time).ToList() : result;
     }
 
+    public static int EffectiveMs(LrcLine line, IReadOnlyDictionary<string, int>? shifts)
+        => (int)Math.Round(TimeOf(line, shifts).TotalMilliseconds);
+
+    /// <summary>
+    /// Time to put a line between prev and next (new neighbors after a move).
+    /// </summary>
+    public static int PlacementMs(TimeSpan? prev, TimeSpan? next, int fallbackMs)
+    {
+        if (prev is { } p && next is { } n)
+        {
+            var gap = (n - p).TotalMilliseconds;
+            if (gap > 80)
+                return (int)Math.Round(p.TotalMilliseconds + gap / 2.0);
+            return (int)Math.Round(p.TotalMilliseconds);
+        }
+        if (next is { } n2)
+            return Math.Max(0, (int)Math.Round(n2.TotalMilliseconds) - 500);
+        if (prev is { } p2)
+            return (int)Math.Round(p2.TotalMilliseconds) + 1_000;
+        return Math.Max(0, fallbackMs);
+    }
+
+    public static TrackTiming SetEffectiveTime(TrackTiming t, LrcLine line, int atMs)
+    {
+        atMs = Math.Clamp(atMs, 0, LyricOffsetStore.MaxMs);
+        var key = LineKey(line);
+        if (IsAddedKey(key))
+        {
+            var id = AddedId(key);
+            var cur = t.Added?.FirstOrDefault(a => a.Id == id)
+                ?? new AddedLyric(atMs, line.Text, id);
+            return t.ReplaceAdded(id, cur with { AtMs = atMs }).WithLineShift(key, 0);
+        }
+        var baseMs = (int)Math.Round(line.Time.TotalMilliseconds);
+        return t.WithLineShift(key, atMs - baseMs);
+    }
+
+    public static TrackTiming DuplicateLine(TrackTiming t, LrcLine line, int atMs)
+    {
+        var id = Guid.NewGuid().ToString("N")[..8];
+        t = t.WithAdded(new AddedLyric(atMs, line.Text, id));
+        var hold = 0;
+        t.Holds?.TryGetValue(LineKey(line), out hold);
+        if (hold != 0)
+            t = t.WithLineHold(AddedKey(id), hold);
+        return t;
+    }
+
+    public static string FormatShownLrc(IReadOnlyList<LrcLine> lines, IReadOnlyDictionary<string, int>? shifts)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line.Text)) continue;
+            var t = TimeOf(line, shifts);
+            sb.Append('[');
+            sb.Append((int)t.TotalMinutes);
+            sb.Append(':');
+            sb.Append(t.Seconds.ToString("D2"));
+            sb.Append('.');
+            sb.Append((t.Milliseconds / 10).ToString("D2"));
+            sb.Append(']');
+            sb.AppendLine(line.Text);
+        }
+        return sb.ToString();
+    }
+
+    public static List<(int AtMs, string Text)> ParseClipboardLyrics(string raw, int fallbackStartMs)
+    {
+        var result = new List<(int, string)>();
+        if (string.IsNullOrWhiteSpace(raw)) return result;
+        var lrc = ParseLrc(raw);
+        if (lrc.Count > 0 && raw.Contains('[', StringComparison.Ordinal))
+        {
+            foreach (var line in lrc)
+            {
+                if (string.IsNullOrWhiteSpace(line.Text)) continue;
+                result.Add((EffectiveMs(line, null), line.Text));
+            }
+            if (result.Count > 0) return result;
+        }
+        var at = Math.Max(0, fallbackStartMs);
+        foreach (var rawLine in raw.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+        {
+            var text = rawLine.Trim();
+            if (text.Length == 0) continue;
+            result.Add((at, text));
+            at += 1_000;
+        }
+        return result;
+    }
+
     public static bool LineIsActive(IReadOnlyList<LrcLine> lines, int idx, TimeSpan pos,
         IReadOnlyDictionary<string, int>? shifts = null,
         IReadOnlyDictionary<string, int>? holds = null)

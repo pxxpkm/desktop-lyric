@@ -9,7 +9,8 @@
         AllowsTransparency="True"
         ResizeMode="CanResizeWithGrip"
         FontFamily="Noto Sans HK Medium, Microsoft JhengHei UI, Segoe UI"
-        MouseLeftButtonDown="Window_Drag">
+        MouseLeftButtonDown="Window_Drag"
+        PreviewKeyDown="Window_PreviewKeyDown">
 
     <Border CornerRadius="16" BorderThickness="1" Margin="8">
         <Border.BorderBrush>
@@ -40,7 +41,7 @@
                            Foreground="#00d4ff" VerticalAlignment="Center"/>
             </DockPanel>
 
-            <TextBlock Grid.Row="1" Text="整首：偏移對齊開頭，快慢對齊 Live。單句：改詞（Live 唔同字）、停留（拉長）、對準或 ±。插入／刪除改結構。會記住呢首歌。"
+            <TextBlock Grid.Row="1" Text="整首：偏移對齊開頭，快慢對齊 Live。單句：改詞、停留、對準。複製／上移下移或拖動列表調動。會記住呢首歌。"
                        Foreground="#80A0B0C0" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
             <StackPanel Grid.Row="2" Margin="0,0,0,10">
@@ -52,7 +53,12 @@
                      Background="#08FFFFFF" BorderBrush="#18FFFFFF"
                      Foreground="#F0F0F5" FontSize="12"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     AllowDrop="True"
                      PreviewMouseLeftButtonDown="Lines_UserPick"
+                     PreviewMouseMove="Lines_MouseMove"
+                     PreviewMouseLeftButtonUp="Lines_MouseUp"
+                     DragOver="Lines_DragOver"
+                     Drop="Lines_Drop"
                      MouseDoubleClick="Align_Click">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
@@ -194,16 +200,36 @@
                 </DockPanel>
                 <DockPanel Margin="0,8,0,0">
                     <TextBlock Width="52"/>
-                    <StackPanel Orientation="Horizontal">
+                    <WrapPanel>
                         <Button Content="插入呢度" Click="Insert_Click"
                                 ToolTip="喺而家歌詞時間插入一新句（用上面歌詞格）"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
-                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,0"/>
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                        <Button Content="複製" Click="Duplicate_Click"
+                                ToolTip="複製選中句，插喺後面。亦寫入剪貼簿。Ctrl+D"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                        <Button Content="上移" Click="MoveUp_Click"
+                                ToolTip="同上一句調位。列表可拖動。Alt+↑"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                        <Button Content="下移" Click="MoveDown_Click"
+                                ToolTip="同下一句調位。列表可拖動。Alt+↓"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="刪呢句" Click="Delete_Click"
                                 ToolTip="隱藏選中句。Live 冇唱呢句就刪。"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
-                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand"/>
-                    </StackPanel>
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                        <Button Content="複製全部" Click="CopyAll_Click"
+                                ToolTip="複製成 LRC 到剪貼簿。Ctrl+Shift+C"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                        <Button Content="貼上" Click="Paste_Click"
+                                ToolTip="從剪貼簿插入（純文字或 LRC）。Ctrl+V"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
+                    </WrapPanel>
                 </DockPanel>
             </StackPanel>
 

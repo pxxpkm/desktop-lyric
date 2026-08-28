@@ -213,6 +213,69 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void placement_ms_splits_the_gap()
+    {
+        Assert.Equal(11_500, LyricsService.PlacementMs(
+            TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(13), 0));
+        Assert.Equal(14_000, LyricsService.PlacementMs(TimeSpan.FromSeconds(13), null, 0));
+        Assert.Equal(9_500, LyricsService.PlacementMs(null, TimeSpan.FromSeconds(10), 0));
+    }
+
+    [Fact]
+    public void set_effective_time_shifts_original_and_rewrites_added()
+    {
+        var orig = new LrcLine(TimeSpan.FromSeconds(10), "hello");
+        var t = LyricsService.SetEffectiveTime(TrackTiming.Default, orig, 12_000);
+        Assert.Equal(2000, t.Lines![LyricsService.LineKey(orig)]);
+        Assert.Equal(TimeSpan.FromSeconds(12), LyricsService.TimeOf(orig, t.Lines));
+
+        var added = new LrcLine(TimeSpan.FromSeconds(5), "ad") { SourceKey = "add|ab" };
+        t = TrackTiming.Default.WithAdded(new AddedLyric(5_000, "ad", "ab"));
+        t = LyricsService.SetEffectiveTime(t, added, 8_000);
+        Assert.Equal(8_000, t.Added![0].AtMs);
+        Assert.True(t.Lines == null || t.Lines.Count == 0);
+    }
+
+    [Fact]
+    public void duplicate_line_inserts_a_copy()
+    {
+        var line = new LrcLine(TimeSpan.FromSeconds(10), "chorus");
+        var t = LyricsService.DuplicateLine(TrackTiming.Default, line, 15_000);
+        Assert.NotNull(t.Added);
+        Assert.Single(t.Added);
+        Assert.Equal("chorus", t.Added[0].Text);
+        Assert.Equal(15_000, t.Added[0].AtMs);
+        var shown = LyricsService.ApplyEdits([line], t);
+        Assert.Equal(2, shown.Count);
+        Assert.Equal("chorus", shown[1].Text);
+        Assert.Equal(TimeSpan.FromSeconds(15), shown[1].Time);
+    }
+
+    [Fact]
+    public void clipboard_plain_and_lrc()
+    {
+        var plain = LyricsService.ParseClipboardLyrics("hello\nworld", 3_000);
+        Assert.Equal(2, plain.Count);
+        Assert.Equal((3000, "hello"), plain[0]);
+        Assert.Equal((4000, "world"), plain[1]);
+
+        var lrc = LyricsService.ParseClipboardLyrics("[00:10.00]a\n[00:12.50]b", 0);
+        Assert.Equal(2, lrc.Count);
+        Assert.Equal(10_000, lrc[0].AtMs);
+        Assert.Equal("a", lrc[0].Text);
+        Assert.Equal(12_500, lrc[1].AtMs);
+    }
+
+    [Fact]
+    public void format_shown_lrc_uses_effective_time()
+    {
+        var line = new LrcLine(TimeSpan.FromSeconds(10), "hello");
+        var shifts = new Dictionary<string, int> { [LyricsService.LineKey(line)] = 1500 };
+        var text = LyricsService.FormatShownLrc([line], shifts);
+        Assert.Contains("[0:11.50]hello", text);
+    }
+
+    [Fact]
     public void lines_sorted_by_time()
     {
         var lrc = "[00:30.00]late\n[00:05.00]early\n[00:15.00]middle";

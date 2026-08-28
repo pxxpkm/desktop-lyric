@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using DesktopLyric.Services;
 
@@ -25,6 +26,8 @@ public partial class TimingEditorWindow : Window
     private HoldRepeat? _lineHold;
     private HoldRepeat? _rateHold;
     private HoldRepeat? _stayHold;
+    private LineRow? _dragRow;
+    private Point _dragStart;
 
     public TimingEditorWindow(
         Func<string> title,
@@ -134,6 +137,63 @@ public partial class TimingEditorWindow : Window
     private void Lines_UserPick(object sender, MouseButtonEventArgs e)
     {
         if (ChkFollow != null) ChkFollow.IsChecked = false;
+        _dragRow = RowFromSource(e.OriginalSource);
+        _dragStart = e.GetPosition(LstLines);
+    }
+
+    private void Lines_MouseUp(object sender, MouseButtonEventArgs e) => _dragRow = null;
+
+    private void Lines_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _dragRow == null) return;
+        var delta = e.GetPosition(LstLines) - _dragStart;
+        if (Math.Abs(delta.X) < 8 && Math.Abs(delta.Y) < 8) return;
+        var key = _dragRow.Key;
+        _dragRow = null;
+        try { DragDrop.DoDragDrop(LstLines, key, DragDropEffects.Move); }
+        catch { }
+    }
+
+    private void Lines_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(typeof(string)) ? DragDropEffects.Move : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void Lines_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(typeof(string)) is not string srcKey) return;
+        var dest = RowFromSource(e.OriginalSource);
+        if (dest == null || dest.Key == srcKey) return;
+        var lines = ShownSung();
+        var from = lines.FindIndex(l => LyricsService.LineKey(l) == srcKey);
+        var destIdx = lines.FindIndex(l => LyricsService.LineKey(l) == dest.Key);
+        if (from < 0 || destIdx < 0) return;
+        var destInWithout = destIdx > from ? destIdx - 1 : destIdx;
+        var lbi = Ancestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        var after = lbi != null && e.GetPosition(lbi).Y > lbi.ActualHeight / 2;
+        PlaceLine(lines, from, after ? destInWithout + 1 : destInWithout);
+    }
+
+    private static LineRow? RowFromSource(object? source)
+    {
+        var dep = source as DependencyObject;
+        while (dep != null && dep is not ListBox)
+        {
+            if (dep is ListBoxItem { Content: LineRow row }) return row;
+            dep = VisualTreeHelper.GetParent(dep);
+        }
+        return null;
+    }
+
+    private static T? Ancestor<T>(DependencyObject? dep) where T : DependencyObject
+    {
+        while (dep != null)
+        {
+            if (dep is T match) return match;
+            dep = VisualTreeHelper.GetParent(dep);
+        }
+        return null;
     }
 
     private void HighlightCurrent(TimeSpan lyricPos)
@@ -396,6 +456,157 @@ public partial class TimingEditorWindow : Window
             _apply(_getTiming().WithLineText(row.Key, ""));
         _listSig = "";
         RebuildLines();
+    }
+
+    private void Duplicate_Click(object sender, RoutedEventArgs e) => DuplicateSelected();
+
+    private void MoveUp_Click(object sender, RoutedEventArgs e) => MoveSelected(-1);
+
+    private void MoveDown_Click(object sender, RoutedEventArgs e) => MoveSelected(1);
+
+    private void CopyAll_Click(object sender, RoutedEventArgs e) => CopyAll();
+
+    private void Paste_Click(object sender, RoutedEventArgs e) => PasteLines();
+
+    private List<LrcLine> ShownSung()
+        => (_lines() ?? []).Where(l => !string.IsNullOrWhiteSpace(l.Text)).ToList();
+
+    private void DuplicateSelected()
+    {
+        if (LstLines.SelectedItem is not LineRow row) return;
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        var lines = ShownSung();
+        var idx = lines.FindIndex(l => LyricsService.LineKey(l) == row.Key);
+        if (idx < 0) idx = 0;
+        var t = _getTiming();
+        var prev = LyricsService.TimeOf(row.Line, t.Lines);
+        TimeSpan? next = idx + 1 < lines.Count ? LyricsService.TimeOf(lines[idx + 1], t.Lines) : null;
+        var at = LyricsService.PlacementMs(prev, next, LyricsService.EffectiveMs(row.Line, t.Lines) + 1000);
+        TryClipboard(row.Line.Text);
+        var nextTiming = LyricsService.DuplicateLine(t, row.Line, at);
+        var newKey = nextTiming.Added is { Count: > 0 } added
+            ? LyricsService.AddedKey(added[^1].Id)
+            : row.Key;
+        _apply(nextTiming);
+        _listSig = "";
+        RebuildLines();
+        SelectKey(newKey);
+    }
+
+    private void MoveSelected(int delta)
+    {
+        if (LstLines.SelectedItem is not LineRow row) return;
+        var lines = ShownSung();
+        var from = lines.FindIndex(l => LyricsService.LineKey(l) == row.Key);
+        if (from < 0) return;
+        var insertAt = from + delta;
+        if (insertAt < 0 || insertAt > lines.Count - 1) return;
+        PlaceLine(lines, from, insertAt);
+    }
+
+    /// <param name="insertAt">Index in the list after <paramref name="from"/> is removed.</param>
+    private void PlaceLine(List<LrcLine> lines, int from, int insertAt)
+    {
+        if (from < 0 || from >= lines.Count) return;
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        var moving = lines[from];
+        var without = lines.Where((_, i) => i != from).ToList();
+        insertAt = Math.Clamp(insertAt, 0, without.Count);
+        if (without.Count == 0) return;
+        var t = _getTiming();
+        TimeSpan? prev = insertAt > 0 ? LyricsService.TimeOf(without[insertAt - 1], t.Lines) : null;
+        TimeSpan? next = insertAt < without.Count ? LyricsService.TimeOf(without[insertAt], t.Lines) : null;
+        var at = LyricsService.PlacementMs(prev, next, LyricsService.EffectiveMs(moving, t.Lines));
+        _apply(LyricsService.SetEffectiveTime(t, moving, at));
+        _listSig = "";
+        RebuildLines();
+        SelectKey(LyricsService.LineKey(moving));
+    }
+
+    private void CopyAll()
+    {
+        var t = _getTiming();
+        TryClipboard(LyricsService.FormatShownLrc(ShownSung(), t.Lines));
+    }
+
+    private void CopySelectedText()
+    {
+        if (LstLines.SelectedItem is LineRow row)
+            TryClipboard(row.Line.Text);
+        else
+            CopyAll();
+    }
+
+    private void PasteLines()
+    {
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        string raw;
+        try { raw = Clipboard.GetText() ?? ""; }
+        catch { return; }
+        var start = (int)Math.Round(_lyricPos().TotalMilliseconds);
+        var parsed = LyricsService.ParseClipboardLyrics(raw, Math.Max(0, start));
+        if (parsed.Count == 0) return;
+        var t = _getTiming();
+        string? lastKey = null;
+        foreach (var (at, text) in parsed)
+        {
+            var id = Guid.NewGuid().ToString("N")[..8];
+            t = t.WithAdded(new AddedLyric(at, text, id));
+            lastKey = LyricsService.AddedKey(id);
+        }
+        _apply(t);
+        _listSig = "";
+        RebuildLines();
+        if (lastKey != null) SelectKey(lastKey);
+    }
+
+    private static void TryClipboard(string text)
+    {
+        try { Clipboard.SetText(text); }
+        catch { }
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (TxtEdit?.IsKeyboardFocused == true) return;
+        var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        var alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt);
+        if (ctrl && shift && e.Key == Key.C)
+        {
+            e.Handled = true;
+            CopyAll();
+            return;
+        }
+        if (ctrl && e.Key == Key.C)
+        {
+            e.Handled = true;
+            CopySelectedText();
+            return;
+        }
+        if (ctrl && e.Key == Key.V)
+        {
+            e.Handled = true;
+            PasteLines();
+            return;
+        }
+        if (ctrl && e.Key == Key.D)
+        {
+            e.Handled = true;
+            DuplicateSelected();
+            return;
+        }
+        if (alt && e.Key == Key.Up)
+        {
+            e.Handled = true;
+            MoveSelected(-1);
+            return;
+        }
+        if (alt && e.Key == Key.Down)
+        {
+            e.Handled = true;
+            MoveSelected(1);
+        }
     }
 
     private void SelectKey(string key)
