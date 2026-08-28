@@ -364,6 +364,7 @@ public partial class MainWindow : Window
             {
                 if (LyricsService.TimeOf(lines[i], _lineShifts) > lyricPos) continue;
                 if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
+                if (LyricsService.IsAttachedTranslationLine(lines, i)) continue;
                 reached = i;
                 break;
             }
@@ -380,8 +381,9 @@ public partial class MainWindow : Window
 
         {
             var text = ToDisplay(lines[idx].Text);
-            var trans = ToDisplay(lines[idx].TranslatedText);
-            var prev = idx > 0 ? ToDisplay(lines[idx - 1].Text) : "";
+            var trans = ToDisplay(LyricsService.ResolvedTranslation(lines, lines[idx]));
+            var prevIdx = LyricsService.PrevSungIndex(lines, idx);
+            var prev = prevIdx >= 0 ? ToDisplay(lines[prevIdx].Text) : "";
             var next = NextLyricText(lines, idx) ?? "";
             var words = KaraokeWordsForLine(lines, idx);
 
@@ -411,12 +413,8 @@ public partial class MainWindow : Window
 
     private string? NextLyricText(IReadOnlyList<LrcLine> lines, int afterIdx)
     {
-        for (int i = afterIdx + 1; i < lines.Count; i++)
-        {
-            if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
-            return ToDisplay(lines[i].Text);
-        }
-        return null;
+        var i = LyricsService.NextSungIndex(lines, afterIdx);
+        return i >= 0 ? ToDisplay(lines[i].Text) : null;
     }
 
     private TimeSpan LyricClockPos()

@@ -1047,12 +1047,17 @@ public class LyricsService
     public const int ConsecutiveMs = 15_000;
     public const int DefaultLineMs = 7_000;
     public const int HoldAfterMs = 400;
+    public const int TransPairMs = 4_000;
 
     public static int NextSungIndex(IReadOnlyList<LrcLine> lines, int afterIdx)
     {
+        var cur = afterIdx >= 0 && afterIdx < lines.Count ? lines[afterIdx] : null;
         for (int i = afterIdx + 1; i < lines.Count; i++)
-            if (!string.IsNullOrWhiteSpace(lines[i].Text))
-                return i;
+        {
+            if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
+            if (cur != null && IsAttachedTranslation(cur, lines[i])) continue;
+            return i;
+        }
         return -1;
     }
 
@@ -1071,10 +1076,39 @@ public class LyricsService
 
     public static int PrevSungIndex(IReadOnlyList<LrcLine> lines, int beforeIdx)
     {
+        var cur = beforeIdx >= 0 && beforeIdx < lines.Count ? lines[beforeIdx] : null;
         for (int i = beforeIdx - 1; i >= 0; i--)
-            if (!string.IsNullOrWhiteSpace(lines[i].Text))
-                return i;
+        {
+            if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
+            if (cur != null && (IsAttachedTranslation(lines[i], cur) || IsAttachedTranslation(cur, lines[i])))
+                continue;
+            return i;
+        }
         return -1;
+    }
+
+    /// <summary>
+    /// Delayed Chinese stamp for a Japanese line — not a new sung phrase.
+    /// Cutting the last chorus line at that stamp made it vanish too early.
+    /// </summary>
+    public static bool IsAttachedTranslation(LrcLine phrase, LrcLine other)
+    {
+        if (string.IsNullOrWhiteSpace(other.Text)) return false;
+        if (!IsJapaneseLine(phrase.Text) || !IsChineseOnly(other.Text)) return false;
+        var dt = (other.Time - phrase.Time).TotalMilliseconds;
+        return dt >= -200 && dt <= TransPairMs;
+    }
+
+    public static bool IsAttachedTranslationLine(IReadOnlyList<LrcLine> lines, int idx)
+    {
+        if (idx < 0 || idx >= lines.Count) return false;
+        if (!IsChineseOnly(lines[idx].Text)) return false;
+        for (int i = idx - 1; i >= 0; i--)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
+            return IsAttachedTranslation(lines[i], lines[idx]);
+        }
+        return false;
     }
 
     public static TimeSpan TimeOf(LrcLine line, IReadOnlyDictionary<string, int>? shifts)
@@ -1104,7 +1138,7 @@ public class LyricsService
         {
             if (ReferenceEquals(other, line)) continue;
             if (string.IsNullOrWhiteSpace(other.Text) || !IsChineseOnly(other.Text)) continue;
-            if (Math.Abs((other.Time - line.Time).TotalMilliseconds) <= 500)
+            if (IsAttachedTranslation(line, other))
                 return other.Text;
         }
         return null;
@@ -1424,6 +1458,7 @@ public class LyricsService
         if (idx < 0 || idx >= lines.Count) return false;
         var line = lines[idx];
         if (string.IsNullOrWhiteSpace(line.Text)) return false;
+        if (IsAttachedTranslationLine(lines, idx)) return false;
         if (pos < TimeOf(line, shifts)) return false;
 
         var prev = PrevSungIndex(lines, idx);

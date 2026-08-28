@@ -198,6 +198,22 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void delayed_chinese_stamp_does_not_cut_last_chorus_line()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(10), "最後のサビ"),
+            new(TimeSpan.FromSeconds(12), "最後副歌"),
+            new(TimeSpan.FromSeconds(40), "次のAメロ"),
+        };
+        Assert.Equal(2, LyricsService.NextSungIndex(lines, 0));
+        Assert.False(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(12.5)));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(12.5)));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(16.5)));
+        Assert.Equal("最後副歌", LyricsService.ResolvedTranslation(lines, lines[0]));
+    }
+
+    [Fact]
     public void extra_hold_keeps_line_past_the_next_stamp()
     {
         var lines = new List<LrcLine>
