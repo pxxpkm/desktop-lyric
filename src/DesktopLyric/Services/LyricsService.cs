@@ -1090,6 +1090,25 @@ public class LyricsService
     }
 
     /// <summary>
+    /// Translation shown under a line: own TranslatedText, else a nearby
+    /// Chinese-only stamp (same pairing overlay uses after SplitMixedLyrics).
+    /// </summary>
+    public static string? ResolvedTranslation(IReadOnlyList<LrcLine> lines, LrcLine line)
+    {
+        if (!string.IsNullOrWhiteSpace(line.TranslatedText))
+            return line.TranslatedText;
+        if (!IsJapaneseLine(line.Text)) return null;
+        foreach (var other in lines)
+        {
+            if (ReferenceEquals(other, line)) continue;
+            if (string.IsNullOrWhiteSpace(other.Text) || !IsChineseOnly(other.Text)) continue;
+            if (Math.Abs((other.Time - line.Time).TotalMilliseconds) <= 500)
+                return other.Text;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Apply per-track text overrides, hidden lines, and inserted live lines.
     /// Original LineKey is kept on SourceKey so timing edits still match.
     /// </summary>

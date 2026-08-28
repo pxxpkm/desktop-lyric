@@ -89,8 +89,15 @@ public partial class TimingEditorWindow : Window
         if (t.Trans != null)
             foreach (var kv in t.Trans) shiftSum += kv.Value.Length;
         shiftSum += t.Added?.Count ?? 0;
-        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{t.Holds?.Count ?? 0}|{t.Texts?.Count ?? 0}|{t.Trans?.Count ?? 0}|{shiftSum}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
-        if (sig == _listSig && LstLines.Items.Count > 0) return;
+        var transChars = 0;
+        foreach (var line in lines)
+            transChars += line.TranslatedText?.Length ?? 0;
+        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{t.Holds?.Count ?? 0}|{t.Texts?.Count ?? 0}|{t.Trans?.Count ?? 0}|{shiftSum}|{transChars}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
+        if (sig == _listSig && LstLines.Items.Count > 0)
+        {
+            FillEditBox();
+            return;
+        }
         _listSig = sig;
         var keepKey = (LstLines.SelectedItem as LineRow)?.Key;
         LstLines.Items.Clear();
@@ -110,7 +117,7 @@ public partial class TimingEditorWindow : Window
             else if (t.Texts != null && t.Texts.ContainsKey(key)) mark += "  改";
             var row = new LineRow(line, key,
                 $"[{(int)shown.TotalMinutes}:{shown.Seconds:D2}.{shown.Milliseconds / 10:D2}]{mark}  {line.Text}",
-                line.TranslatedText ?? "");
+                LyricsService.ResolvedTranslation(lines, line) ?? "");
             LstLines.Items.Add(row);
             if (keepKey != null && key == keepKey) reselect = row;
         }
@@ -135,6 +142,7 @@ public partial class TimingEditorWindow : Window
             if (ChkFollow?.IsChecked != false)
                 HighlightCurrent(lyric);
             RefreshLineLabel();
+            FillEditBox();
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
     }
@@ -271,14 +279,25 @@ public partial class TimingEditorWindow : Window
         if (TxtEdit.IsKeyboardFocused || TxtTrans?.IsKeyboardFocused == true) return;
         if (LstLines.SelectedItem is LineRow row)
         {
-            TxtEdit.Text = row.Line.Text;
-            if (TxtTrans != null) TxtTrans.Text = row.Line.TranslatedText ?? "";
+            SetBox(TxtEdit, row.Line.Text);
+            var trans = LyricsService.ResolvedTranslation(ShownSung(), row.Line)
+                ?? row.Line.TranslatedText
+                ?? row.Translation
+                ?? "";
+            SetBox(TxtTrans, trans);
         }
         else
         {
-            TxtEdit.Text = "";
-            if (TxtTrans != null) TxtTrans.Text = "";
+            SetBox(TxtEdit, "");
+            SetBox(TxtTrans, "");
         }
+    }
+
+    private static void SetBox(TextBox? box, string value)
+    {
+        if (box == null) return;
+        if (box.Text == value) return;
+        box.Text = value;
     }
 
     private void Slider_DragStarted(object sender, DragStartedEventArgs e) => _dragging = true;
@@ -433,8 +452,8 @@ public partial class TimingEditorWindow : Window
             t = string.Equals(text, original, StringComparison.Ordinal)
                 ? t.WithLineText(row.Key, null)
                 : t.WithLineText(row.Key, text);
-            t = t.WithLineTrans(row.Key, trans ?? "");
-            _apply(t);
+            // Empty box = keep the line's own translation (do not store "").
+            t = t.WithLineTrans(row.Key, trans);
         }
         _listSig = "";
         RebuildLines();

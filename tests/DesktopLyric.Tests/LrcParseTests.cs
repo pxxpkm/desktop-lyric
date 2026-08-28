@@ -37,6 +37,16 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void resolved_translation_uses_nearby_chinese_line()
+    {
+        var jp = new LrcLine(TimeSpan.FromSeconds(12), "夕暮れ 駆け抜けた");
+        var cn = new LrcLine(TimeSpan.FromMilliseconds(12_200), "在黃昏中奔馳而過");
+        var lines = new List<LrcLine> { jp, cn };
+        Assert.Equal("在黃昏中奔馳而過", LyricsService.ResolvedTranslation(lines, jp));
+        Assert.Null(LyricsService.ResolvedTranslation(lines, cn));
+    }
+
+    [Fact]
     public void karaoke_words_drop_trailing_chinese()
     {
         var line = new LrcLine(TimeSpan.FromSeconds(1), "夕暮れ駆け抜けた在黃昏奔馳");
@@ -210,6 +220,16 @@ public class LrcParseTests
         Assert.Equal("add|ab12", LyricsService.LineKey(shown[1]));
         Assert.Equal("keep", shown[2].Text);
         Assert.Null(shown[0].WordTimings);
+    }
+
+    [Fact]
+    public void apply_edits_keeps_translation_unless_overridden()
+    {
+        var src = new LrcLine(TimeSpan.FromSeconds(1), "夕暮れ") { TranslatedText = "黃昏" };
+        var key = LyricsService.LineKey(src);
+        Assert.Equal("黃昏", LyricsService.ApplyEdits([src], TrackTiming.Default)[0].TranslatedText);
+        Assert.Null(LyricsService.ApplyEdits([src], TrackTiming.Default.WithLineTrans(key, ""))[0].TranslatedText);
+        Assert.Equal("黃昏啊", LyricsService.ApplyEdits([src], TrackTiming.Default.WithLineTrans(key, "黃昏啊"))[0].TranslatedText);
     }
 
     [Fact]
