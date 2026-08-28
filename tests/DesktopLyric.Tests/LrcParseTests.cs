@@ -63,6 +63,7 @@ public class LrcParseTests
         var lines = LyricsService.ParseYrcLines(yrc);
         Assert.Single(lines);
         Assert.Equal(14726, lines[0].startMs);
+        Assert.Equal(1200, lines[0].durMs);
         Assert.Equal(3, lines[0].words.Count);
         Assert.Equal(0, lines[0].words[0].StartMs);
         Assert.Equal(240, lines[0].words[1].StartMs);
@@ -105,14 +106,58 @@ public class LrcParseTests
     }
 
     [Fact]
-    public void skips_empty_lines_and_metadata()
+    public void keeps_empty_timestamps_as_gap_markers()
     {
         var lrc = "[ti:Song Title]\n[ar:Artist]\n[00:05.00]\n[00:10.00]actual lyric\n[00:15.00]  ";
         var lines = LyricsService.ParseLrc(lrc);
 
-        // only "actual lyric" has text, metadata lines don't match regex, empty text skipped
-        Assert.Single(lines);
-        Assert.Equal("actual lyric", lines[0].Text);
+        Assert.Equal(3, lines.Count);
+        Assert.Equal("", lines[0].Text);
+        Assert.Equal("actual lyric", lines[1].Text);
+        Assert.Equal("", lines[2].Text);
+    }
+
+    [Fact]
+    public void gap_after_karaoke_clears_only_after_a_long_hold()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(10), "verse end")
+            {
+                WordTimings = [new(0, 800, "verse"), new(800, 400, "end")],
+            },
+            new(TimeSpan.FromSeconds(50), "next verse"),
+        };
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(10.5)));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(16.5)));
+        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(18)));
+        Assert.True(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(50.2)));
+    }
+
+    [Fact]
+    public void empty_timestamp_between_nearby_lines_does_not_cut()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(5), "hello"),
+            new(TimeSpan.FromSeconds(8), ""),
+            new(TimeSpan.FromSeconds(12), "later"),
+        };
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(9)));
+        Assert.Equal(TimeSpan.FromSeconds(12), LyricsService.LineDisplayEnd(lines, 0));
+        Assert.False(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(9)));
+    }
+
+    [Fact]
+    public void consecutive_lines_hold_until_the_next_stamp()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(10), "a"),
+            new(TimeSpan.FromSeconds(13), "b"),
+        };
+        Assert.Equal(TimeSpan.FromSeconds(13), LyricsService.LineDisplayEnd(lines, 0));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(12.5)));
     }
 
     [Fact]

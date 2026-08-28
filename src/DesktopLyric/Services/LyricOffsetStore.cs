@@ -13,7 +13,11 @@ public static class LyricOffsetStore
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "DesktopLyric", "offsets.json");
 
-    private static Dictionary<string, int>? _cache;
+    public const double RateStep = 0.005;
+    public const double RateMin = 0.85;
+    public const double RateMax = 1.20;
+
+    private static Dictionary<string, TrackTiming>? _cache;
     private static readonly object _lock = new();
 
     public const int StepMs = 50;
@@ -46,10 +50,12 @@ public static class LyricOffsetStore
         }
     }
 
-    public static int GetMs(string? title, string? artist)
+    public static int GetMs(string? title, string? artist) => GetTiming(title, artist).OffsetMs;
+
+    public static TrackTiming GetTiming(string? title, string? artist)
     {
         var dict = LoadDict();
-        if (dict.Count == 0) return 0;
+        if (dict.Count == 0) return TrackTiming.Default;
 
         foreach (var key in LyricChoiceStore.FingerprintKeys(title, artist))
         {
@@ -57,8 +63,8 @@ public static class LyricOffsetStore
         }
 
         var wantTitles = LyricChoiceStore.TitleKeys(title);
-        if (wantTitles.Count == 0) return 0;
-        int? unique = null;
+        if (wantTitles.Count == 0) return TrackTiming.Default;
+        TrackTiming? unique = null;
         var uniqueCount = 0;
         foreach (var kv in dict)
         {
@@ -69,12 +75,15 @@ public static class LyricOffsetStore
             uniqueCount++;
             unique = kv.Value;
         }
-        return uniqueCount == 1 ? unique!.Value : 0;
+        return uniqueCount == 1 ? unique!.Value : TrackTiming.Default;
     }
 
     public static void SetMs(string? title, string? artist, int ms)
+        => SetTiming(title, artist, GetTiming(title, artist) with { OffsetMs = ms });
+
+    public static void SetTiming(string? title, string? artist, TrackTiming timing)
     {
-        ms = Math.Clamp(ms, MinMs, MaxMs);
+        timing = timing.Clamped();
         var keys = LyricChoiceStore.FingerprintKeys(title, artist);
         if (keys.Count == 0) return;
         lock (_lock)
@@ -91,8 +100,8 @@ public static class LyricOffsetStore
             }
             foreach (var key in keys)
             {
-                if (ms == 0) dict.Remove(key);
-                else dict[key] = ms;
+                if (timing.IsIdentity) dict.Remove(key);
+                else dict[key] = timing;
             }
             _cache = dict;
         }
@@ -101,9 +110,10 @@ public static class LyricOffsetStore
 
     public static int Nudge(string? title, string? artist, int deltaMs)
     {
-        var next = Math.Clamp(GetMs(title, artist) + deltaMs, MinMs, MaxMs);
-        SetMs(title, artist, next);
-        return next;
+        var cur = GetTiming(title, artist);
+        var next = cur with { OffsetMs = Math.Clamp(cur.OffsetMs + deltaMs, MinMs, MaxMs) };
+        SetTiming(title, artist, next);
+        return next.OffsetMs;
     }
 
     public static string Format(int ms)
@@ -112,23 +122,53 @@ public static class LyricOffsetStore
         return $"{sign}{Math.Abs(ms) / 1000.0:0.00}s";
     }
 
-    private static Dictionary<string, int> LoadDict()
+    public static string FormatRate(double rate)
+    {
+        if (double.IsNaN(rate) || double.IsInfinity(rate)) rate = 1;
+        var pct = (rate - 1.0) * 100.0;
+        if (Math.Abs(pct) < 0.05) return "1.000×";
+        var sign = pct > 0 ? "快" : "慢";
+        return $"{rate:0.000}×（{sign} {Math.Abs(pct):0.0}%）";
+    }
+
+    public static string FormatLabel(int ms, double rate)
+    {
+        var off = Format(ms);
+        if (Math.Abs(rate - 1.0) < 0.0005) return off;
+        return $"{off}  {rate:0.000}×";
+    }
+
+    private static Dictionary<string, TrackTiming> LoadDict()
     {
         lock (_lock)
         {
             if (_cache != null) return _cache;
-            try
-            {
-                if (File.Exists(_storePath))
-                {
-                    _cache = JsonSerializer.Deserialize<Dictionary<string, int>>(
-                        File.ReadAllText(_storePath)) ?? new();
-                    return _cache;
-                }
-            }
-            catch { }
-            _cache = new();
+            _cache = ReadFile(_storePath);
             return _cache;
+        }
+    }
+
+    private static Dictionary<string, TrackTiming> ReadFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return new();
+            var json = File.ReadAllText(path);
+            if (json.Contains("\"OffsetMs\"", StringComparison.OrdinalIgnoreCase)
+                || json.Contains("\"Rate\"", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonSerializer.Deserialize<Dictionary<string, TrackTiming>>(json) ?? new();
+            }
+            var ints = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
+            if (ints == null) return new();
+            var converted = new Dictionary<string, TrackTiming>(ints.Count);
+            foreach (var kv in ints)
+                converted[kv.Key] = new TrackTiming(kv.Value, 1.0);
+            return converted;
+        }
+        catch
+        {
+            return new();
         }
     }
 
@@ -137,10 +177,37 @@ public static class LyricOffsetStore
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_storePath)!);
-            Dictionary<string, int> snap;
+            Dictionary<string, TrackTiming> snap;
             lock (_lock) { snap = new(_cache ?? new()); }
             File.WriteAllText(_storePath, JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { }
+    }
+}
+
+public readonly record struct TrackTiming(int OffsetMs, double Rate, Dictionary<string, int>? Lines = null)
+{
+    public static TrackTiming Default => new(0, 1.0);
+
+    public bool IsIdentity =>
+        OffsetMs == 0
+        && Math.Abs(Rate - 1.0) < 0.0005
+        && (Lines == null || Lines.Count == 0);
+
+    public TrackTiming Clamped() => new(
+        Math.Clamp(OffsetMs, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs),
+        Math.Clamp(
+            double.IsNaN(Rate) || double.IsInfinity(Rate) ? 1.0 : Rate,
+            LyricOffsetStore.RateMin,
+            LyricOffsetStore.RateMax),
+        Lines is { Count: > 0 } ? Lines : null);
+
+    public TrackTiming WithLineShift(string key, int ms)
+    {
+        var d = Lines is { Count: > 0 } ? new Dictionary<string, int>(Lines) : new();
+        ms = Math.Clamp(ms, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
+        if (ms == 0) d.Remove(key);
+        else d[key] = ms;
+        return new(OffsetMs, Rate, d.Count == 0 ? null : d);
     }
 }

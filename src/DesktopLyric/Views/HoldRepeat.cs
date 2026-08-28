@@ -22,8 +22,12 @@ internal sealed class HoldRepeat : IDisposable
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
         _timer.Tick += (_, _) =>
         {
-            var ms = LyricOffsetStore.StepForHoldMs(_sw.Elapsed.TotalMilliseconds);
-            if (ms != 0) _step(_sign * ms);
+            try
+            {
+                var ms = LyricOffsetStore.StepForHoldMs(_sw.Elapsed.TotalMilliseconds);
+                if (ms != 0) _step(_sign * ms);
+            }
+            catch (Exception ex) { ErrorLog.Write(ex); }
         };
     }
 
@@ -32,7 +36,8 @@ internal sealed class HoldRepeat : IDisposable
         Up();
         _sign = sign < 0 ? -1 : 1;
         _sw.Restart();
-        _step(_sign * LyricOffsetStore.StepMs);
+        try { _step(_sign * LyricOffsetStore.StepMs); }
+        catch (Exception ex) { ErrorLog.Write(ex); }
         if (capture != null)
         {
             try { Mouse.Capture(capture); } catch { }

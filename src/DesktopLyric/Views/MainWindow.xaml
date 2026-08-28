@@ -172,7 +172,7 @@
                     </Button.Resources>
                 </Button>
                 <Button x:Name="BtnOffset" Content="±0.00s" Click="OffsetReset_Click"
-                        ToolTip="重設呢首歌嘅時機微調"
+                        ToolTip="重設呢首歌嘅偏移同快慢"
                         Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="10,7" FontSize="11" Cursor="Hand" Margin="0,3,0,3">
@@ -188,6 +188,15 @@
                         Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="10,7" FontSize="11" Cursor="Hand" Margin="0,3,3,3">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
+                    </Button.Resources>
+                </Button>
+                <Button Content="時機" Click="TimingEditor_Click"
+                        ToolTip="時機編輯：偏移＋快慢，記住呢首歌（適合 YouTube Live）"
+                        Background="#0CFFFFFF" Foreground="#a0b0c0"
+                        BorderBrush="#15FFFFFF" BorderThickness="1"
+                        Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">
                     <Button.Resources>
                         <Style TargetType="Border"><Setter Property="CornerRadius" Value="16"/></Style>
                     </Button.Resources>

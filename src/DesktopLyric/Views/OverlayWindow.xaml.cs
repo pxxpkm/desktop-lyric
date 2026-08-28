@@ -17,6 +17,7 @@ public partial class OverlayWindow : Window
     public event Action<int>? OffsetNudged;
     public event Action? PickSongRequested;
     public event Action? FullscreenRequested;
+    public event Action? TimingEditorRequested;
 
     public OverlayWindow() : this(AppSettings.Load()) { }
 
@@ -59,13 +60,14 @@ public partial class OverlayWindow : Window
 
     public void RefreshTradButton() => ApplyTradButton();
 
-    public void SetOffsetLabel(int ms)
+    public void SetOffsetLabel(int ms, double rate = 1.0)
     {
         if (!WindowGuard.CanTouch(this)) return;
-        BtnOffset.Content = LyricOffsetStore.Format(ms);
-        BtnOffset.Foreground = ms == 0
-            ? new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90))
-            : new SolidColorBrush(Color.FromRgb(0x00, 0xd4, 0xff));
+        BtnOffset.Content = LyricOffsetStore.FormatLabel(ms, rate);
+        var custom = ms != 0 || Math.Abs(rate - 1.0) >= 0.0005;
+        BtnOffset.Foreground = custom
+            ? new SolidColorBrush(Color.FromRgb(0x00, 0xd4, 0xff))
+            : new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90));
     }
 
     public void RefreshFonts()
@@ -268,6 +270,8 @@ public partial class OverlayWindow : Window
         _settings.Save();
         ApplyTopmost();
     }
+
+    private void OnTimingEditor(object sender, RoutedEventArgs e) => TimingEditorRequested?.Invoke();
 
     private void OnPickSong(object sender, RoutedEventArgs e) => PickSongRequested?.Invoke();
 

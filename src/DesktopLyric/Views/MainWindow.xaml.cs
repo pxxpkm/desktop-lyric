@@ -24,7 +24,10 @@ public partial class MainWindow : Window
     private string _lastTitle = "";
     private string _lastArtist = "";
     private int _trackOffsetMs;
+    private double _trackRate = 1.0;
+    private Dictionary<string, int> _lineShifts = new();
     private HoldRepeat? _offsetHold;
+    private TimingEditorWindow? _timingEditor;
     private DispatcherTimer? _offsetSave;
     private List<LrcLine> _lines = new();
     private string _lastRomajiInput = "";
@@ -148,63 +151,79 @@ public partial class MainWindow : Window
         {
             var props = await _session.TryGetMediaPropertiesAsync();
             if (props == null) return;
-            var title = props.Title ?? "";
-            var artist = props.Artist ?? "";
-
-            if (!string.IsNullOrEmpty(title))
+            try
             {
-                TxtTitle.Text = ToDisplay(title);
-                TxtArtist.Text = ToDisplay(artist);
+                var title = props.Title ?? "";
+                var artist = props.Artist ?? "";
 
-                // load album art
-                _ = LoadAlbumArt(props);
-                _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
-                _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
-
-                var titleChanged = title != _lastTitle;
-                var artistFilled = !titleChanged
-                    && string.IsNullOrEmpty(_lastArtist)
-                    && !string.IsNullOrEmpty(artist);
-                if (titleChanged || artistFilled)
+                if (!string.IsNullOrEmpty(title))
                 {
-                    _lastTitle = title;
-                    _lastArtist = artist;
-                    LoadTrackOffset();
-                    _lyrics.Cancel();
-                    if (titleChanged)
-                    {
-                        TxtCurrent.Text = "searching...";
-                        TxtTrans.Text = "";
-                        TxtPrev.Text = "";
-                        TxtNext.Text = "";
-                    }
+                    TxtTitle.Text = ToDisplay(title);
+                    TxtArtist.Text = ToDisplay(artist);
 
-                    var requestedTitle = title;
-                    var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
-                    if (_lastTitle != requestedTitle) return;
-                    if (result == null) return; // cancelled (user picked another candidate, or a newer search)
-                    if (result.Count > 0)
+                    await LoadAlbumArt(props);
+                    _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
+                    _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
+
+                    var titleChanged = title != _lastTitle;
+                    var artistFilled = !titleChanged
+                        && string.IsNullOrEmpty(_lastArtist)
+                        && !string.IsNullOrEmpty(artist);
+                    if (titleChanged || artistFilled)
                     {
-                        _lines = result;
-                        ResetKaraokeCache();
-                        TxtCurrent.Text = "♪";
-                    }
-                    else
-                    {
-                        _lines = new();
-                        ResetKaraokeCache();
-                        TxtCurrent.Text = "no lyrics found";
+                        _lastTitle = title;
+                        _lastArtist = artist;
+                        LoadTrackOffset();
+                        _lyrics.Cancel();
+                        if (titleChanged)
+                        {
+                            TxtCurrent.Text = "searching...";
+                            TxtTrans.Text = "";
+                            TxtPrev.Text = "";
+                            TxtNext.Text = "";
+                        }
+
+                        var requestedTitle = title;
+                        var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
+                        if (_lastTitle != requestedTitle) return;
+                        if (result == null) return; // cancelled (user picked another candidate, or a newer search)
+                        if (result.Count > 0)
+                        {
+                            _lines = result;
+                            ResetKaraokeCache();
+                            TxtCurrent.Text = "♪";
+                        }
+                        else
+                        {
+                            _lines = new();
+                            ResetKaraokeCache();
+                            TxtCurrent.Text = "no lyrics found";
+                        }
                     }
                 }
-            }
 
-            RefreshClock();
+                RefreshClock();
+            }
+            finally { WinRtLifetime.Release(props); }
         }
         catch { }
     }
 
     private void BindSession(GlobalSystemMediaTransportControlsSession? session)
     {
+        if (_session != null && session != null)
+        {
+            try
+            {
+                if (_session.SourceAppUserModelId == session.SourceAppUserModelId)
+                {
+                    WinRtLifetime.Release(session);
+                    return;
+                }
+            }
+            catch { }
+        }
+
         if (_session != null)
         {
             try
@@ -214,6 +233,7 @@ public partial class MainWindow : Window
                 _session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
             }
             catch { }
+            WinRtLifetime.Release(_session);
         }
 
         _session = session;
@@ -236,10 +256,12 @@ public partial class MainWindow : Window
     private void RefreshClock()
     {
         if (_session == null) return;
+        GlobalSystemMediaTransportControlsSessionPlaybackInfo? info = null;
+        GlobalSystemMediaTransportControlsSessionTimelineProperties? tl = null;
         try
         {
-            var info = _session.GetPlaybackInfo();
-            var tl = _session.GetTimelineProperties();
+            info = _session.GetPlaybackInfo();
+            tl = _session.GetTimelineProperties();
             var playing = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             var rate = info.PlaybackRate is > 0 and var r ? r : 1.0;
             _clock.Apply(tl.Position, playing, rate);
@@ -247,6 +269,12 @@ public partial class MainWindow : Window
                 SyncLyrics();
         }
         catch { }
+        finally
+        {
+            WinRtLifetime.Release(info);
+            WinRtLifetime.Release(tl);
+            GC.KeepAlive(_session);
+        }
     }
 
     private async Task LoadAlbumArt(GlobalSystemMediaTransportControlsSessionMediaProperties props)
@@ -261,10 +289,14 @@ public partial class MainWindow : Window
                 _fullscreen?.SetAlbumArt(null);
                 return;
             }
-            using var stream = await thumb.OpenReadAsync();
+            var stream = await thumb.OpenReadAsync();
             using var ms = new MemoryStream();
-            using var inp = stream.AsStreamForRead();
-            await inp.CopyToAsync(ms);
+            try
+            {
+                using var inp = stream.AsStreamForRead();
+                await inp.CopyToAsync(ms);
+            }
+            finally { WinRtLifetime.Release(stream); }
             ms.Position = 0;
             var bmp = new BitmapImage();
             bmp.BeginInit();
@@ -308,32 +340,37 @@ public partial class MainWindow : Window
         var pos = _clock.Position;
         TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
 
-        var lyricPos = pos + TimeSpan.FromMilliseconds(_settings.GlobalOffsetMs + _trackOffsetMs);
-        if (lyricPos < TimeSpan.Zero) lyricPos = TimeSpan.Zero;
+        var lyricPos = LyricClockPos();
 
         int idx = -1;
         for (int i = _lines.Count - 1; i >= 0; i--)
         {
-            if (_lines[i].Time <= lyricPos) { idx = i; break; }
+            if (LyricsService.TimeOf(_lines[i], _lineShifts) > lyricPos) continue;
+            if (string.IsNullOrWhiteSpace(_lines[i].Text)) continue;
+            idx = i;
+            break;
         }
 
-        if (idx < 0)
+        if (idx < 0 || !LyricsService.LineIsActive(_lines, idx, lyricPos, _lineShifts))
         {
-            var first = ToDisplay(_lines[0].Text);
+            var upcoming = NextLyricText(idx < 0 ? -1 : idx);
+            var lastSung = idx >= 0 ? ToDisplay(_lines[idx].Text) : "";
+            if (string.IsNullOrWhiteSpace(lastSung))
+                lastSung = idx > 0 ? ToDisplay(_lines[idx - 1].Text) : "";
             TxtCurrent.Text = "";
             TxtTrans.Text = "";
-            TxtPrev.Text = "";
-            TxtNext.Text = first;
-            SafeUpdateLyrics("", null, first, null, 0);
+            TxtPrev.Text = lastSung ?? "";
+            TxtNext.Text = upcoming ?? "";
+            TxtRomaji.Text = "";
+            SafeUpdateLyrics("", null, upcoming, null, 0);
             return;
         }
 
-        if (idx >= 0)
         {
             var text = ToDisplay(_lines[idx].Text);
             var trans = ToDisplay(_lines[idx].TranslatedText);
             var prev = idx > 0 ? ToDisplay(_lines[idx - 1].Text) : "";
-            var next = idx < _lines.Count - 1 ? ToDisplay(_lines[idx + 1].Text) : "";
+            var next = NextLyricText(idx) ?? "";
             var words = KaraokeWordsForLine(idx);
 
             TxtCurrent.Text = text;
@@ -342,7 +379,7 @@ public partial class MainWindow : Window
             TxtNext.Text = next;
             ApplyLineFonts(text, trans, prev, next);
 
-            var elapsed = (lyricPos - _lines[idx].Time).TotalMilliseconds;
+            var elapsed = (lyricPos - LyricsService.TimeOf(_lines[idx], _lineShifts)).TotalMilliseconds;
             if (elapsed < 0) elapsed = 0;
             SafeUpdateLyrics(text,
                 _settings.HideTranslation ? null : trans,
@@ -350,12 +387,29 @@ public partial class MainWindow : Window
                 words,
                 elapsed);
 
-            // romaji
             if (_settings.ShowRomaji && LyricFonts.HasKana(text))
                 UpdateRomaji(text);
             else
                 TxtRomaji.Text = "";
         }
+    }
+
+    private string? NextLyricText(int afterIdx)
+    {
+        for (int i = afterIdx + 1; i < _lines.Count; i++)
+        {
+            if (string.IsNullOrWhiteSpace(_lines[i].Text)) continue;
+            return ToDisplay(_lines[i].Text);
+        }
+        return null;
+    }
+
+    private TimeSpan LyricClockPos()
+    {
+        var rate = _trackRate <= 0 || double.IsNaN(_trackRate) ? 1.0 : _trackRate;
+        var ms = (_clock.Position.TotalMilliseconds + _settings.GlobalOffsetMs + _trackOffsetMs) * rate;
+        if (ms < 0) ms = 0;
+        return TimeSpan.FromMilliseconds(ms);
     }
 
     private void UpdateRomaji(string text)
@@ -458,13 +512,15 @@ public partial class MainWindow : Window
     private TimeSpan? GetTrackDuration()
     {
         if (_session == null) return null;
+        GlobalSystemMediaTransportControlsSessionTimelineProperties? tl = null;
         try
         {
-            var tl = _session.GetTimelineProperties();
+            tl = _session.GetTimelineProperties();
             var dur = tl.EndTime - tl.StartTime;
             return dur >= TimeSpan.FromSeconds(12) ? dur : null;
         }
         catch { return null; }
+        finally { WinRtLifetime.Release(tl); }
     }
 
     // --- UI handlers ---
@@ -491,6 +547,8 @@ public partial class MainWindow : Window
         _syncTimer.Stop();
         FlushOffsetSave();
         _offsetHold?.Dispose();
+        WinRtLifetime.Release(_mgr);
+        _mgr = null;
         base.OnClosing(e);
     }
 
@@ -513,6 +571,7 @@ public partial class MainWindow : Window
 
     public void QuitApp()
     {
+        if (_forceClose) return;
         _offsetHold?.Dispose();
         _offsetHold = null;
         FlushOffsetSave();
@@ -660,7 +719,8 @@ public partial class MainWindow : Window
         _overlay.OffsetNudged += NudgeOffset;
         _overlay.PickSongRequested += () => _ = PickSongAsync(_overlay);
         _overlay.FullscreenRequested += ShowFullscreen;
-        _overlay.SetOffsetLabel(_trackOffsetMs);
+        _overlay.TimingEditorRequested += OpenTimingEditor;
+        _overlay.SetOffsetLabel(_trackOffsetMs, _trackRate);
         _overlay.Closed += (_, _) => _overlay = null;
         _overlay.Show();
     }
@@ -712,9 +772,61 @@ public partial class MainWindow : Window
     private void LoadTrackOffset()
     {
         FlushOffsetSave();
-        _trackOffsetMs = LyricOffsetStore.GetMs(_lastTitle, _lastArtist);
+        var t = LyricOffsetStore.GetTiming(_lastTitle, _lastArtist);
+        _trackOffsetMs = t.OffsetMs;
+        _trackRate = t.Rate;
+        _lineShifts = t.Lines is { Count: > 0 } ? new Dictionary<string, int>(t.Lines) : new();
         RefreshOffsetUi();
     }
+
+    private void OpenTimingEditor()
+    {
+        if (_timingEditor != null)
+        {
+            _timingEditor.Activate();
+            return;
+        }
+        try
+        {
+            _timingEditor = new TimingEditorWindow(
+                () => _lastTitle,
+                () => _lastArtist,
+                () => _clock.Position,
+                () => _lines,
+                LyricClockPos,
+                () => _settings.GlobalOffsetMs,
+                () => CurrentTiming(),
+                ApplyTiming)
+            {
+                Topmost = true,
+            };
+            if (IsVisible) _timingEditor.Owner = this;
+            _timingEditor.Closed += (_, _) => _timingEditor = null;
+            _timingEditor.Show();
+        }
+        catch (Exception ex)
+        {
+            _timingEditor = null;
+            ErrorLog.Write(ex);
+        }
+    }
+
+    private TrackTiming CurrentTiming()
+        => new TrackTiming(_trackOffsetMs, _trackRate,
+            _lineShifts.Count == 0 ? null : new Dictionary<string, int>(_lineShifts));
+
+    private void ApplyTiming(TrackTiming timing)
+    {
+        timing = timing.Clamped();
+        _trackOffsetMs = timing.OffsetMs;
+        _trackRate = timing.Rate;
+        _lineShifts = timing.Lines is { Count: > 0 } ? new Dictionary<string, int>(timing.Lines) : new();
+        ScheduleOffsetSave();
+        RefreshOffsetUi();
+        SyncLyrics();
+    }
+
+    private void TimingEditor_Click(object sender, RoutedEventArgs e) => OpenTimingEditor();
 
     private void OffsetEarlier_Down(object sender, MouseButtonEventArgs e)
     {
@@ -740,9 +852,14 @@ public partial class MainWindow : Window
     private void NudgeOffset(int delta)
     {
         if (string.IsNullOrEmpty(_lastTitle)) return;
-        _trackOffsetMs = delta == int.MinValue
-            ? 0
-            : Math.Clamp(_trackOffsetMs + delta, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
+        if (delta == int.MinValue)
+        {
+            _trackOffsetMs = 0;
+            _trackRate = 1.0;
+            _lineShifts.Clear();
+        }
+        else
+            _trackOffsetMs = Math.Clamp(_trackOffsetMs + delta, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
         RefreshOffsetUi();
         SyncLyrics();
         ScheduleOffsetSave();
@@ -761,7 +878,7 @@ public partial class MainWindow : Window
     {
         _offsetSave?.Stop();
         if (!string.IsNullOrEmpty(_lastTitle))
-            LyricOffsetStore.SetMs(_lastTitle, _lastArtist, _trackOffsetMs);
+            LyricOffsetStore.SetTiming(_lastTitle, _lastArtist, CurrentTiming());
     }
 
     private void FlushOffsetSave()
@@ -772,13 +889,14 @@ public partial class MainWindow : Window
 
     private void RefreshOffsetUi()
     {
-        var label = LyricOffsetStore.Format(_trackOffsetMs);
+        var label = LyricOffsetStore.FormatLabel(_trackOffsetMs, _trackRate);
         BtnOffset.Content = label;
+        var custom = _trackOffsetMs != 0 || Math.Abs(_trackRate - 1.0) >= 0.0005;
         BtnOffset.Foreground = new System.Windows.Media.SolidColorBrush(
-            _trackOffsetMs == 0
-                ? System.Windows.Media.Color.FromRgb(0xa0, 0xb0, 0xc0)
-                : System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
-        _overlay?.SetOffsetLabel(_trackOffsetMs);
+            custom
+                ? System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff)
+                : System.Windows.Media.Color.FromRgb(0xa0, 0xb0, 0xc0));
+        _overlay?.SetOffsetLabel(_trackOffsetMs, _trackRate);
     }
 
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)

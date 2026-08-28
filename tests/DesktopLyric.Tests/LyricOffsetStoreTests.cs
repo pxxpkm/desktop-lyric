@@ -74,6 +74,46 @@ public class LyricOffsetStoreTests : IDisposable
     }
 
     [Fact]
+    public void remembers_rate_and_offset_together()
+    {
+        LyricOffsetStore.SetTiming("live", "yt", new TrackTiming(1500, 1.03));
+        var t = LyricOffsetStore.GetTiming("live", "yt");
+        Assert.Equal(1500, t.OffsetMs);
+        Assert.Equal(1.03, t.Rate, 3);
+    }
+
+    [Fact]
+    public void set_ms_keeps_existing_rate()
+    {
+        LyricOffsetStore.SetTiming("a", "b", new TrackTiming(100, 1.04));
+        LyricOffsetStore.SetMs("a", "b", 200);
+        var t = LyricOffsetStore.GetTiming("a", "b");
+        Assert.Equal(200, t.OffsetMs);
+        Assert.Equal(1.04, t.Rate, 3);
+    }
+
+    [Fact]
+    public void migrates_legacy_int_offsets()
+    {
+        File.WriteAllText(_path, """{"bob|song":250}""");
+        LyricOffsetStore.ResetForTests(_path);
+        Assert.Equal(250, LyricOffsetStore.GetMs("song", "bob"));
+        Assert.Equal(1.0, LyricOffsetStore.GetTiming("song", "bob").Rate);
+    }
+
+    [Fact]
+    public void remembers_per_line_shift()
+    {
+        var t = TrackTiming.Default.WithLineShift("1000|hello", 400);
+        LyricOffsetStore.SetTiming("live", "yt", t);
+        var got = LyricOffsetStore.GetTiming("live", "yt");
+        Assert.NotNull(got.Lines);
+        Assert.Equal(400, got.Lines!["1000|hello"]);
+        Assert.Equal(TimeSpan.FromMilliseconds(1400),
+            LyricsService.TimeOf(new LrcLine(TimeSpan.FromMilliseconds(1000), "hello"), got.Lines));
+    }
+
+    [Fact]
     public void format_shows_seconds()
     {
         Assert.Equal("±0.00s", LyricOffsetStore.Format(0));

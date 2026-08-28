@@ -130,7 +130,8 @@ public class LyricsService
     private void EnsureTranslation(List<LrcLine> result, int gen)
     {
         SplitMixedLyrics(result);
-        var needsTrans = result.Any(l => string.IsNullOrEmpty(l.TranslatedText));
+        var needsTrans = result.Any(l =>
+            !string.IsNullOrWhiteSpace(l.Text) && string.IsNullOrEmpty(l.TranslatedText));
         if (needsTrans)
             _ = Task.Run(() => TranslateInBackground(result, gen));
     }
@@ -145,6 +146,7 @@ public class LyricsService
         {
             var a = lyrics[i];
             var b = lyrics[i + 1];
+            if (string.IsNullOrWhiteSpace(a.Text) || string.IsNullOrWhiteSpace(b.Text)) { i++; continue; }
             if (Math.Abs((a.Time - b.Time).TotalMilliseconds) > 150) { i++; continue; }
             if (string.IsNullOrEmpty(a.TranslatedText) && IsJapaneseLine(a.Text) && IsChineseOnly(b.Text))
             {
@@ -847,6 +849,8 @@ public class LyricsService
             if (Math.Abs(yrcLines[yi].startMs - ms) <= 1200)
             {
                 line.WordTimings = yrcLines[yi].words;
+                if (yrcLines[yi].durMs > 0)
+                    line.Duration = TimeSpan.FromMilliseconds(yrcLines[yi].durMs);
                 yi++;
             }
         }
@@ -856,9 +860,9 @@ public class LyricsService
     /// NetEase YRC: [lineStartMs,lineDur](absOrRelStart,dur,0)word...
     /// Word timestamps are usually absolute; some dumps are already relative to the line.
     /// </summary>
-    internal static List<(int startMs, List<KaraokeWordTiming> words)> ParseYrcLines(string yrc)
+    internal static List<(int startMs, int durMs, List<KaraokeWordTiming> words)> ParseYrcLines(string yrc)
     {
-        var result = new List<(int, List<KaraokeWordTiming>)>();
+        var result = new List<(int, int, List<KaraokeWordTiming>)>();
         foreach (var raw in yrc.Split('\n'))
         {
             var line = raw.TrimEnd('\r');
@@ -866,6 +870,7 @@ public class LyricsService
             var hm = YrcLineRegex.Match(line);
             if (!hm.Success) continue;
             if (!int.TryParse(hm.Groups[1].Value, out int lineStart)) continue;
+            int.TryParse(hm.Groups[2].Value, out int lineDur);
 
             var rest = line[hm.Length..];
             var matches = YrcWordRegex.Matches(rest);
@@ -902,7 +907,7 @@ public class LyricsService
                 words.Add(new KaraokeWordTiming(rel, dur, txt));
             }
             if (words.Count > 0)
-                result.Add((lineStart, words));
+                result.Add((lineStart, lineDur, words));
         }
         return result;
     }
@@ -1023,12 +1028,79 @@ public class LyricsService
                 var msRaw = m.Groups[3].Value;
                 var ms = msRaw.Length == 2 ? int.Parse(msRaw) * 10 : int.Parse(msRaw);
                 var text = m.Groups[4].Value.Trim();
-                if (string.IsNullOrEmpty(text) || IsLrcJunk(text)) continue;
+                if (IsLrcJunk(text)) continue;
                 var time = TimeSpan.FromMinutes(min) + TimeSpan.FromSeconds(sec) + TimeSpan.FromMilliseconds(ms);
                 lines.Add(new LrcLine(time, text));
             }
         }
         return lines.OrderBy(l => l.Time).ToList();
+    }
+
+    /// <summary>
+    /// Keep a sung line until the next non-empty lyric when they are close
+    /// (verse / 間句). Empty LRC stamps in between are not treated as a
+    /// cut. Only a long wait until the next lyric (intro / instrumental)
+    /// clears the screen, and only after DefaultLineMs.
+    /// </summary>
+    public const int ConsecutiveMs = 7_000;
+    public const int DefaultLineMs = 7_000;
+    public const int HoldAfterMs = 400;
+
+    public static int NextSungIndex(IReadOnlyList<LrcLine> lines, int afterIdx)
+    {
+        for (int i = afterIdx + 1; i < lines.Count; i++)
+            if (!string.IsNullOrWhiteSpace(lines[i].Text))
+                return i;
+        return -1;
+    }
+
+    public static string LineKey(LrcLine line)
+        => $"{(long)Math.Round(line.Time.TotalMilliseconds)}|{line.Text}";
+
+    public static TimeSpan TimeOf(LrcLine line, IReadOnlyDictionary<string, int>? shifts)
+    {
+        if (shifts is { Count: > 0 } && shifts.TryGetValue(LineKey(line), out var ms) && ms != 0)
+            return line.Time + TimeSpan.FromMilliseconds(ms);
+        return line.Time;
+    }
+
+    public static bool LineIsActive(IReadOnlyList<LrcLine> lines, int idx, TimeSpan pos,
+        IReadOnlyDictionary<string, int>? shifts = null)
+    {
+        if (idx < 0 || idx >= lines.Count) return false;
+        var line = lines[idx];
+        if (string.IsNullOrWhiteSpace(line.Text)) return false;
+        if (pos < TimeOf(line, shifts)) return false;
+        return pos < LineDisplayEnd(lines, idx, shifts);
+    }
+
+    public static TimeSpan LineDisplayEnd(IReadOnlyList<LrcLine> lines, int idx,
+        IReadOnlyDictionary<string, int>? shifts = null)
+    {
+        var line = lines[idx];
+        var start = TimeOf(line, shifts);
+        var nextSung = NextSungIndex(lines, idx);
+        var next = nextSung >= 0 ? TimeOf(lines[nextSung], shifts) : TimeSpan.MaxValue;
+
+        if (next < TimeSpan.MaxValue
+            && (next - start).TotalMilliseconds <= ConsecutiveMs)
+            return next;
+
+        var hold = start + TimeSpan.FromMilliseconds(DefaultLineMs);
+        if (line.Duration is { Ticks: > 0 } d)
+        {
+            var yrcEnd = start + d + TimeSpan.FromMilliseconds(HoldAfterMs);
+            if (yrcEnd > hold) hold = yrcEnd;
+        }
+        else if (line.WordTimings is { Count: > 0 } w)
+        {
+            var last = w[^1];
+            var sung = start + TimeSpan.FromMilliseconds(Math.Max(0, last.StartMs + last.DurationMs))
+                + TimeSpan.FromMilliseconds(HoldAfterMs);
+            if (sung > hold) hold = sung;
+        }
+
+        return next < hold ? next : hold;
     }
 
     // wrote this thinking I'd need it for plain text lyrics but never used it
@@ -1049,4 +1121,5 @@ public record LrcLine(TimeSpan Time, string Text)
 {
     public string? TranslatedText { get; set; }
     public List<KaraokeWordTiming>? WordTimings { get; set; }
+    public TimeSpan? Duration { get; set; }
 }

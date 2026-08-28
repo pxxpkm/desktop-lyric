@@ -72,8 +72,34 @@
                     <Style TargetType="ListBoxItem">
                         <Setter Property="Background" Value="Transparent"/>
                         <Setter Property="Foreground" Value="#F0F0F5"/>
-                        <Setter Property="Padding" Value="6,2"/>
+                        <Setter Property="Padding" Value="8,4"/>
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="Bd" CornerRadius="8" Margin="0,2" Padding="{TemplateBinding Padding}"
+                                            Background="Transparent" BorderBrush="Transparent" BorderThickness="1">
+                                        <ContentPresenter HorizontalAlignment="Stretch"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#18FFFFFF"/>
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#3300d4ff"/>
+                                            <Setter TargetName="Bd" Property="BorderBrush" Value="#7000d4ff"/>
+                                        </Trigger>
+                                        <MultiTrigger>
+                                            <MultiTrigger.Conditions>
+                                                <Condition Property="IsSelected" Value="True"/>
+                                                <Condition Property="IsMouseOver" Value="True"/>
+                                            </MultiTrigger.Conditions>
+                                            <Setter TargetName="Bd" Property="Background" Value="#4500d4ff"/>
+                                        </MultiTrigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
                     </Style>
                 </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
