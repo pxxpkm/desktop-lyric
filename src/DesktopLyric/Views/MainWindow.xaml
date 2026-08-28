@@ -193,7 +193,7 @@
                     </Button.Resources>
                 </Button>
                 <Button Content="時機" Click="TimingEditor_Click"
-                        ToolTip="時機編輯：偏移＋快慢，記住呢首歌（適合 YouTube Live）"
+                        ToolTip="時機編輯：偏移＋快慢＋改詞＋停留（適合 YouTube Live）"
                         Background="#0CFFFFFF" Foreground="#a0b0c0"
                         BorderBrush="#15FFFFFF" BorderThickness="1"
                         Padding="14,7" FontSize="11" Cursor="Hand" Margin="3">

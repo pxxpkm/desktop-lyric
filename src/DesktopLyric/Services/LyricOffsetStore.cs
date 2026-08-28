@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DesktopLyric.Services;
 
@@ -28,6 +29,9 @@ public static class LyricOffsetStore
     public const int HoldDelayMs = 400;
     public const int HoldAccelMs = 1_200;
     public const int HoldFastMs = 2_500;
+    public const int HoldStepMs = 250;
+    public const int HoldMinMs = -30_000;
+    public const int HoldMaxMs = 180_000;
 
     /// <summary>
     /// Extra step while a ＋/− button is held. 0 until HoldDelayMs so the
@@ -138,6 +142,12 @@ public static class LyricOffsetStore
         return $"{off}  {rate:0.000}×";
     }
 
+    public static string FormatHold(int ms)
+    {
+        if (ms == 0) return "0.00s";
+        return Format(ms);
+    }
+
     private static Dictionary<string, TrackTiming> LoadDict()
     {
         lock (_lock)
@@ -179,20 +189,35 @@ public static class LyricOffsetStore
             Directory.CreateDirectory(Path.GetDirectoryName(_storePath)!);
             Dictionary<string, TrackTiming> snap;
             lock (_lock) { snap = new(_cache ?? new()); }
-            File.WriteAllText(_storePath, JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(_storePath, JsonSerializer.Serialize(snap, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            }));
         }
         catch { }
     }
 }
 
-public readonly record struct TrackTiming(int OffsetMs, double Rate, Dictionary<string, int>? Lines = null)
+public readonly record struct AddedLyric(int AtMs, string Text, string Id);
+
+public readonly record struct TrackTiming(
+    int OffsetMs,
+    double Rate,
+    Dictionary<string, int>? Lines = null,
+    Dictionary<string, int>? Holds = null,
+    Dictionary<string, string>? Texts = null,
+    List<AddedLyric>? Added = null)
 {
     public static TrackTiming Default => new(0, 1.0);
 
     public bool IsIdentity =>
         OffsetMs == 0
         && Math.Abs(Rate - 1.0) < 0.0005
-        && (Lines == null || Lines.Count == 0);
+        && (Lines == null || Lines.Count == 0)
+        && (Holds == null || Holds.Count == 0)
+        && (Texts == null || Texts.Count == 0)
+        && (Added == null || Added.Count == 0);
 
     public TrackTiming Clamped() => new(
         Math.Clamp(OffsetMs, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs),
@@ -200,7 +225,10 @@ public readonly record struct TrackTiming(int OffsetMs, double Rate, Dictionary<
             double.IsNaN(Rate) || double.IsInfinity(Rate) ? 1.0 : Rate,
             LyricOffsetStore.RateMin,
             LyricOffsetStore.RateMax),
-        Lines is { Count: > 0 } ? Lines : null);
+        CopyInts(Lines, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs),
+        CopyInts(Holds, LyricOffsetStore.HoldMinMs, LyricOffsetStore.HoldMaxMs),
+        Texts is { Count: > 0 } ? new Dictionary<string, string>(Texts) : null,
+        Added is { Count: > 0 } ? [.. Added] : null);
 
     public TrackTiming WithLineShift(string key, int ms)
     {
@@ -208,6 +236,82 @@ public readonly record struct TrackTiming(int OffsetMs, double Rate, Dictionary<
         ms = Math.Clamp(ms, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
         if (ms == 0) d.Remove(key);
         else d[key] = ms;
-        return new(OffsetMs, Rate, d.Count == 0 ? null : d);
+        return new(OffsetMs, Rate, EmptyToNull(d), Holds, Texts, Added);
     }
+
+    public TrackTiming WithLineHold(string key, int ms)
+    {
+        var d = Holds is { Count: > 0 } ? new Dictionary<string, int>(Holds) : new();
+        ms = Math.Clamp(ms, LyricOffsetStore.HoldMinMs, LyricOffsetStore.HoldMaxMs);
+        if (ms == 0) d.Remove(key);
+        else d[key] = ms;
+        return new(OffsetMs, Rate, Lines, EmptyToNull(d), Texts, Added);
+    }
+
+    /// <summary>
+    /// Override displayed text. Empty string hides the line. null removes the override.
+    /// </summary>
+    public TrackTiming WithLineText(string key, string? text)
+    {
+        var d = Texts is { Count: > 0 } ? new Dictionary<string, string>(Texts) : new();
+        if (text == null) d.Remove(key);
+        else d[key] = text;
+        return new(OffsetMs, Rate, Lines, Holds, d.Count == 0 ? null : d, Added);
+    }
+
+    public TrackTiming WithAdded(AddedLyric line)
+    {
+        var list = Added is { Count: > 0 } ? new List<AddedLyric>(Added) : [];
+        list.Add(line);
+        return new(OffsetMs, Rate, Lines, Holds, Texts, list);
+    }
+
+    public TrackTiming ReplaceAdded(string id, AddedLyric line)
+    {
+        if (Added == null || Added.Count == 0) return WithAdded(line);
+        var list = new List<AddedLyric>(Added.Count);
+        var found = false;
+        foreach (var a in Added)
+        {
+            if (a.Id == id)
+            {
+                list.Add(line);
+                found = true;
+            }
+            else list.Add(a);
+        }
+        if (!found) list.Add(line);
+        return new(OffsetMs, Rate, Lines, Holds, Texts, list);
+    }
+
+    public TrackTiming WithoutAdded(string id)
+    {
+        if (Added == null || Added.Count == 0) return this;
+        var list = Added.Where(a => a.Id != id).ToList();
+        return new(OffsetMs, Rate, Lines, Holds, Texts, list.Count == 0 ? null : list);
+    }
+
+    public TrackTiming WithoutLine(string key)
+    {
+        var next = WithLineShift(key, 0).WithLineHold(key, 0).WithLineText(key, null);
+        const string prefix = "add|";
+        return key.StartsWith(prefix, StringComparison.Ordinal)
+            ? next.WithoutAdded(key[prefix.Length..])
+            : next;
+    }
+
+    private static Dictionary<string, int>? CopyInts(Dictionary<string, int>? src, int min, int max)
+    {
+        if (src == null || src.Count == 0) return null;
+        var d = new Dictionary<string, int>(src.Count);
+        foreach (var kv in src)
+        {
+            var v = Math.Clamp(kv.Value, min, max);
+            if (v != 0) d[kv.Key] = v;
+        }
+        return d.Count == 0 ? null : d;
+    }
+
+    private static Dictionary<string, int>? EmptyToNull(Dictionary<string, int> d)
+        => d.Count == 0 ? null : d;
 }

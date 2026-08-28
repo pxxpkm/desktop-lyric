@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="時機編輯"
-        Height="620" Width="480"
+        Height="700" Width="520"
         WindowStartupLocation="CenterOwner"
         Background="Transparent"
         WindowStyle="None"
@@ -40,7 +40,7 @@
                            Foreground="#00d4ff" VerticalAlignment="Center"/>
             </DockPanel>
 
-            <TextBlock Grid.Row="1" Text="整首：偏移對齊開頭，快慢對齊 Live。單句：揀一行再對準或 ±，只郁呢一句。會記住呢首歌。"
+            <TextBlock Grid.Row="1" Text="整首：偏移對齊開頭，快慢對齊 Live。單句：改詞（Live 唔同字）、停留（拉長）、對準或 ±。插入／刪除改結構。會記住呢首歌。"
                        Foreground="#80A0B0C0" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
             <StackPanel Grid.Row="2" Margin="0,0,0,10">
@@ -155,6 +155,54 @@
                                 ToolTip="令選中嘅呢一句對準而家播放位置（只改呢句）"
                                 Background="#1800d4ff" Foreground="#00d4ff"
                                 BorderBrush="#4000d4ff" Padding="10,5" Cursor="Hand"/>
+                    </StackPanel>
+                </DockPanel>
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Text="停留" Foreground="#E8EEF4" FontSize="13" VerticalAlignment="Center" Width="52"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="−"
+                                PreviewMouseLeftButtonDown="StayShorter_Down"
+                                PreviewMouseLeftButtonUp="StayHold_Up"
+                                LostMouseCapture="StayHold_Up"
+                                ToolTip="呢句早啲消失。撳一下 0.25s，長按加快"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Width="32"/>
+                        <TextBlock x:Name="LblStay" Text="0.00s" Foreground="#90A8B8"
+                                   FontSize="12" VerticalAlignment="Center" MinWidth="64"
+                                   TextAlignment="Center" Margin="6,0"/>
+                        <Button Content="＋"
+                                PreviewMouseLeftButtonDown="StayLonger_Down"
+                                PreviewMouseLeftButtonUp="StayHold_Up"
+                                LostMouseCapture="StayHold_Up"
+                                ToolTip="呢句拉長停留。撳一下 0.25s，長按加快（Live 拖音）"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Width="32"/>
+                    </StackPanel>
+                </DockPanel>
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Text="歌詞" Foreground="#E8EEF4" FontSize="13" VerticalAlignment="Center" Width="52"/>
+                    <Button DockPanel.Dock="Right" Content="套用" Click="ApplyText_Click"
+                            ToolTip="用呢格字取代選中句（Live 唔同詞）。空白＝刪呢句顯示"
+                            Background="#1800d4ff" Foreground="#00d4ff"
+                            BorderBrush="#4000d4ff" Padding="10,5" Cursor="Hand" Margin="8,0,0,0"/>
+                    <TextBox x:Name="TxtEdit"
+                             Background="#18FFFFFF" Foreground="#F0F0F5" BorderBrush="#22FFFFFF"
+                             CaretBrush="#00d4ff" Padding="8,6" FontSize="12"
+                             VerticalContentAlignment="Center"
+                             ToolTip="改選中句嘅字。Enter 套用。"
+                             KeyDown="Edit_KeyDown"/>
+                </DockPanel>
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock Width="52"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="插入呢度" Click="Insert_Click"
+                                ToolTip="喺而家歌詞時間插入一新句（用上面歌詞格）"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,0"/>
+                        <Button Content="刪呢句" Click="Delete_Click"
+                                ToolTip="隱藏選中句。Live 冇唱呢句就刪。"
+                                Background="#10FFFFFF" Foreground="#A0B0C0"
+                                BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand"/>
                     </StackPanel>
                 </DockPanel>
             </StackPanel>

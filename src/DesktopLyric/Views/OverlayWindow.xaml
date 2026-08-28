@@ -106,7 +106,7 @@
                             BorderThickness="0" FontSize="13" Cursor="Hand"
                             Width="24" Height="24" Margin="0,0,2,0"/>
                     <Button Content="調" Click="OnTimingEditor" Style="{x:Null}"
-                            ToolTip="時機編輯：偏移＋快慢（Live 版）"
+                            ToolTip="時機編輯：偏移＋快慢＋改詞＋停留（Live 版）"
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="11" Cursor="Hand"
                             Width="24" Height="24" Margin="0,0,6,0"/>

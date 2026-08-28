@@ -24,6 +24,7 @@ public partial class TimingEditorWindow : Window
     private string _listSig = "";
     private HoldRepeat? _lineHold;
     private HoldRepeat? _rateHold;
+    private HoldRepeat? _stayHold;
 
     public TimingEditorWindow(
         Func<string> title,
@@ -49,6 +50,10 @@ public partial class TimingEditorWindow : Window
         SldOffset.ValueChanged += Slider_Changed;
         _lineHold = new HoldRepeat(NudgeSelectedLine);
         _rateHold = new HoldRepeat(delta => NudgeRate(delta >= 0 ? 1 : -1));
+        _stayHold = new HoldRepeat(delta => NudgeStay(delta >= 0
+            ? LyricOffsetStore.HoldStepMs
+            : -LyricOffsetStore.HoldStepMs));
+        LstLines.SelectionChanged += (_, _) => FillEditBox();
         _ready = true;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _timer.Tick += (_, _) => RefreshLive();
@@ -67,30 +72,43 @@ public partial class TimingEditorWindow : Window
     private void RebuildLines()
     {
         var lines = _lines() ?? [];
-        var shifts = _getTiming().Lines;
+        var t = _getTiming();
+        var shifts = t.Lines;
         var shiftSum = 0;
         if (shifts != null)
             foreach (var kv in shifts) shiftSum += kv.Value + kv.Key.Length;
-        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{shiftSum}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
+        if (t.Holds != null)
+            foreach (var kv in t.Holds) shiftSum += kv.Value;
+        if (t.Texts != null)
+            foreach (var kv in t.Texts) shiftSum += kv.Value.Length;
+        shiftSum += t.Added?.Count ?? 0;
+        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{t.Holds?.Count ?? 0}|{t.Texts?.Count ?? 0}|{shiftSum}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
         if (sig == _listSig && LstLines.Items.Count > 0) return;
         _listSig = sig;
-        var keep = (LstLines.SelectedItem as LineRow)?.Line;
+        var keepKey = (LstLines.SelectedItem as LineRow)?.Key;
         LstLines.Items.Clear();
         LineRow? reselect = null;
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line.Text)) continue;
+            var key = LyricsService.LineKey(line);
             var shown = LyricsService.TimeOf(line, shifts);
             var extra = 0;
-            shifts?.TryGetValue(LyricsService.LineKey(line), out extra);
+            shifts?.TryGetValue(key, out extra);
+            var stay = 0;
+            t.Holds?.TryGetValue(key, out stay);
             var mark = extra == 0 ? "" : $"  {LyricOffsetStore.Format(extra)}";
-            var row = new LineRow(line,
+            if (stay != 0) mark += $"  停留{LyricOffsetStore.FormatHold(stay)}";
+            if (LyricsService.IsAddedKey(key)) mark += "  +";
+            else if (t.Texts != null && t.Texts.ContainsKey(key)) mark += "  改";
+            var row = new LineRow(line, key,
                 $"[{(int)shown.TotalMinutes}:{shown.Seconds:D2}.{shown.Milliseconds / 10:D2}]{mark}  {line.Text}");
             LstLines.Items.Add(row);
-            if (keep != null && ReferenceEquals(keep, line)) reselect = row;
+            if (keepKey != null && key == keepKey) reselect = row;
         }
         if (reselect != null) LstLines.SelectedItem = reselect;
         RefreshLineLabel();
+        FillEditBox();
     }
 
     private void RefreshLive()
@@ -121,20 +139,21 @@ public partial class TimingEditorWindow : Window
     private void HighlightCurrent(TimeSpan lyricPos)
     {
         var lines = _lines() ?? [];
+        var timing = _getTiming();
         int idx = -1;
         for (int i = lines.Count - 1; i >= 0; i--)
         {
-            if (LyricsService.TimeOf(lines[i], _getTiming().Lines) > lyricPos) continue;
-            if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
-            idx = i;
-            break;
+            if (LyricsService.LineIsActive(lines, i, lyricPos, timing.Lines, timing.Holds))
+            {
+                idx = i;
+                break;
+            }
         }
-        if (idx < 0 || !LyricsService.LineIsActive(lines, idx, lyricPos, _getTiming().Lines))
-            return;
-        var want = lines[idx];
+        if (idx < 0) return;
+        var wantKey = LyricsService.LineKey(lines[idx]);
         for (int i = 0; i < LstLines.Items.Count; i++)
         {
-            if (LstLines.Items[i] is LineRow row && ReferenceEquals(row.Line, want))
+            if (LstLines.Items[i] is LineRow row && row.Key == wantKey)
             {
                 if (LstLines.SelectedIndex != i)
                 {
@@ -160,17 +179,31 @@ public partial class TimingEditorWindow : Window
     private void RefreshLineLabel()
     {
         if (LblLine == null) return;
+        var cyan = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
         if (LstLines.SelectedItem is not LineRow row)
         {
             LblLine.Text = "±0.00s";
+            if (LblStay != null) LblStay.Text = "0.00s";
             return;
         }
+        var t = _getTiming();
         var extra = 0;
-        _getTiming().Lines?.TryGetValue(LyricsService.LineKey(row.Line), out extra);
+        t.Lines?.TryGetValue(row.Key, out extra);
         LblLine.Text = LyricOffsetStore.Format(extra);
-        LblLine.Foreground = extra == 0
-            ? System.Windows.Media.Brushes.Gray
-            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff));
+        LblLine.Foreground = extra == 0 ? System.Windows.Media.Brushes.Gray : cyan;
+        var stay = 0;
+        t.Holds?.TryGetValue(row.Key, out stay);
+        if (LblStay != null)
+        {
+            LblStay.Text = LyricOffsetStore.FormatHold(stay);
+            LblStay.Foreground = stay == 0 ? System.Windows.Media.Brushes.Gray : cyan;
+        }
+    }
+
+    private void FillEditBox()
+    {
+        if (TxtEdit == null || TxtEdit.IsKeyboardFocused) return;
+        TxtEdit.Text = LstLines.SelectedItem is LineRow row ? row.Line.Text : "";
     }
 
     private void Slider_DragStarted(object sender, DragStartedEventArgs e) => _dragging = true;
@@ -222,14 +255,41 @@ public partial class TimingEditorWindow : Window
     private void NudgeSelectedLine(int delta)
     {
         if (LstLines.SelectedItem is not LineRow row) return;
-        var key = LyricsService.LineKey(row.Line);
         var t = _getTiming();
         var cur = 0;
-        t.Lines?.TryGetValue(key, out cur);
-        _apply(t.WithLineShift(key, cur + delta));
+        t.Lines?.TryGetValue(row.Key, out cur);
+        _apply(t.WithLineShift(row.Key, cur + delta));
         _listSig = "";
         RebuildLines();
     }
+
+    private void NudgeStay(int delta)
+    {
+        if (LstLines.SelectedItem is not LineRow row) return;
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        var t = _getTiming();
+        var cur = 0;
+        t.Holds?.TryGetValue(row.Key, out cur);
+        _apply(t.WithLineHold(row.Key, cur + delta));
+        _listSig = "";
+        RebuildLines();
+    }
+
+    private void StayLonger_Down(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        _stayHold?.Down(1, sender as IInputElement);
+    }
+
+    private void StayShorter_Down(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        _stayHold?.Down(-1, sender as IInputElement);
+    }
+
+    private void StayHold_Up(object sender, MouseEventArgs e) => _stayHold?.Up();
 
     private void LineEarlier_Down(object sender, MouseButtonEventArgs e)
     {
@@ -253,7 +313,7 @@ public partial class TimingEditorWindow : Window
         if (ChkFollow != null) ChkFollow.IsChecked = false;
         var shift = (int)Math.Round(_lyricPos().TotalMilliseconds - row.Line.Time.TotalMilliseconds);
         shift = Math.Clamp(shift, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
-        _apply(_getTiming().WithLineShift(LyricsService.LineKey(row.Line), shift));
+        _apply(_getTiming().WithLineShift(row.Key, shift));
         _listSig = "";
         RebuildLines();
     }
@@ -261,9 +321,95 @@ public partial class TimingEditorWindow : Window
     private void ResetLine_Click(object sender, RoutedEventArgs e)
     {
         if (LstLines.SelectedItem is not LineRow row) return;
-        _apply(_getTiming().WithLineShift(LyricsService.LineKey(row.Line), 0));
+        _apply(_getTiming().WithoutLine(row.Key));
         _listSig = "";
         RebuildLines();
+    }
+
+    private void Edit_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            ApplyText_Click(sender, e);
+        }
+    }
+
+    private void ApplyText_Click(object sender, RoutedEventArgs e)
+    {
+        if (LstLines.SelectedItem is not LineRow row) return;
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        var text = (TxtEdit?.Text ?? "").Trim();
+        var t = _getTiming();
+        if (LyricsService.IsAddedKey(row.Key))
+        {
+            var id = LyricsService.AddedId(row.Key);
+            var cur = t.Added?.FirstOrDefault(a => a.Id == id) ?? new AddedLyric(
+                (int)Math.Round(row.Line.Time.TotalMilliseconds), text, id);
+            if (string.IsNullOrWhiteSpace(text))
+                _apply(t.WithoutLine(row.Key));
+            else
+                _apply(t.ReplaceAdded(id, cur with { Text = text }));
+        }
+        else
+        {
+            var original = OriginalText(row);
+            _apply(string.Equals(text, original, StringComparison.Ordinal)
+                ? t.WithLineText(row.Key, null)
+                : t.WithLineText(row.Key, text));
+        }
+        _listSig = "";
+        RebuildLines();
+    }
+
+    private static string OriginalText(LineRow row)
+    {
+        var key = row.Key;
+        var i = key.IndexOf('|');
+        if (i < 0 || LyricsService.IsAddedKey(key)) return row.Line.Text;
+        return key[(i + 1)..];
+    }
+
+    private void Insert_Click(object sender, RoutedEventArgs e)
+    {
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        var text = (TxtEdit?.Text ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text) && LstLines.SelectedItem is LineRow row)
+            text = row.Line.Text;
+        if (string.IsNullOrWhiteSpace(text)) text = "…";
+        var at = (int)Math.Round(_lyricPos().TotalMilliseconds);
+        if (at < 0) at = 0;
+        var id = Guid.NewGuid().ToString("N")[..8];
+        _apply(_getTiming().WithAdded(new AddedLyric(at, text, id)));
+        _listSig = "";
+        RebuildLines();
+        SelectKey(LyricsService.AddedKey(id));
+    }
+
+    private void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        if (LstLines.SelectedItem is not LineRow row) return;
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        if (LyricsService.IsAddedKey(row.Key))
+            _apply(_getTiming().WithoutLine(row.Key));
+        else
+            _apply(_getTiming().WithLineText(row.Key, ""));
+        _listSig = "";
+        RebuildLines();
+    }
+
+    private void SelectKey(string key)
+    {
+        foreach (var item in LstLines.Items)
+        {
+            if (item is LineRow row && row.Key == key)
+            {
+                LstLines.SelectedItem = row;
+                LstLines.ScrollIntoView(row);
+                FillEditBox();
+                return;
+            }
+        }
     }
 
     private void Reset_Click(object sender, RoutedEventArgs e)
@@ -276,7 +422,7 @@ public partial class TimingEditorWindow : Window
     {
         if (e.ChangedButton != MouseButton.Left) return;
         if (e.OriginalSource is Button or Slider or ListBox or ListBoxItem
-            or System.Windows.Controls.Primitives.Thumb)
+            or TextBox or System.Windows.Controls.Primitives.Thumb)
             return;
         try { DragMove(); } catch { }
     }
@@ -290,10 +436,12 @@ public partial class TimingEditorWindow : Window
         _lineHold = null;
         _rateHold?.Dispose();
         _rateHold = null;
+        _stayHold?.Dispose();
+        _stayHold = null;
         base.OnClosed(e);
     }
 
-    private sealed record LineRow(LrcLine Line, string Display)
+    private sealed record LineRow(LrcLine Line, string Key, string Display)
     {
         public override string ToString() => Display;
     }

@@ -114,6 +114,43 @@ public class LyricOffsetStoreTests : IDisposable
     }
 
     [Fact]
+    public void remembers_hold_and_text_override()
+    {
+        var key = "1000|hello";
+        var t = TrackTiming.Default
+            .WithLineHold(key, 2500)
+            .WithLineText(key, "live hello");
+        LyricOffsetStore.SetTiming("live", "yt", t);
+        var got = LyricOffsetStore.GetTiming("live", "yt");
+        Assert.Equal(2500, got.Holds![key]);
+        Assert.Equal("live hello", got.Texts![key]);
+    }
+
+    [Fact]
+    public void remembers_inserted_line()
+    {
+        var t = TrackTiming.Default.WithAdded(new AddedLyric(12_000, "hey", "x1"));
+        LyricOffsetStore.SetTiming("live", "yt", t);
+        var got = LyricOffsetStore.GetTiming("live", "yt");
+        Assert.Single(got.Added!);
+        Assert.Equal(12_000, got.Added![0].AtMs);
+        Assert.Equal("hey", got.Added[0].Text);
+        Assert.Equal("x1", got.Added[0].Id);
+    }
+
+    [Fact]
+    public void without_line_clears_shift_hold_and_text()
+    {
+        var key = "1000|hello";
+        var t = TrackTiming.Default
+            .WithLineShift(key, 400)
+            .WithLineHold(key, 2000)
+            .WithLineText(key, "x");
+        t = t.WithoutLine(key);
+        Assert.True(t.IsIdentity);
+    }
+
+    [Fact]
     public void format_shows_seconds()
     {
         Assert.Equal("±0.00s", LyricOffsetStore.Format(0));

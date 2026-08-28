@@ -161,6 +161,58 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void extra_hold_keeps_line_past_the_next_stamp()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(10), "held"),
+            new(TimeSpan.FromSeconds(13), "next"),
+        };
+        var key = LyricsService.LineKey(lines[0]);
+        var holds = new Dictionary<string, int> { [key] = 4000 };
+        Assert.Equal(TimeSpan.FromSeconds(17), LyricsService.LineDisplayEnd(lines, 0, holds: holds));
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(15), holds: holds));
+        Assert.False(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(15), holds: holds));
+        Assert.True(LyricsService.LineIsActive(lines, 1, TimeSpan.FromSeconds(17.2), holds: holds));
+    }
+
+    [Fact]
+    public void extra_hold_extends_a_long_gap()
+    {
+        var lines = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(10), "end"),
+            new(TimeSpan.FromSeconds(50), "later"),
+        };
+        var holds = new Dictionary<string, int> { [LyricsService.LineKey(lines[0])] = 3000 };
+        Assert.True(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(19.5), holds: holds));
+        Assert.False(LyricsService.LineIsActive(lines, 0, TimeSpan.FromSeconds(21), holds: holds));
+    }
+
+    [Fact]
+    public void apply_edits_replaces_hides_and_inserts()
+    {
+        var src = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(1), "studio") { WordTimings = [new(0, 200, "studio")] },
+            new(TimeSpan.FromSeconds(2), "skip me"),
+            new(TimeSpan.FromSeconds(4), "keep"),
+        };
+        var timing = TrackTiming.Default
+            .WithLineText(LyricsService.LineKey(src[0]), "live words")
+            .WithLineText(LyricsService.LineKey(src[1]), "")
+            .WithAdded(new AddedLyric(2500, "ad-lib", "ab12"));
+        var shown = LyricsService.ApplyEdits(src, timing);
+        Assert.Equal(3, shown.Count);
+        Assert.Equal("live words", shown[0].Text);
+        Assert.Equal(LyricsService.LineKey(src[0]), shown[0].SourceKey);
+        Assert.Equal("ad-lib", shown[1].Text);
+        Assert.Equal("add|ab12", LyricsService.LineKey(shown[1]));
+        Assert.Equal("keep", shown[2].Text);
+        Assert.Null(shown[0].WordTimings);
+    }
+
+    [Fact]
     public void lines_sorted_by_time()
     {
         var lrc = "[00:30.00]late\n[00:05.00]early\n[00:15.00]middle";

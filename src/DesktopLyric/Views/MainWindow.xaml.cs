@@ -26,6 +26,9 @@ public partial class MainWindow : Window
     private int _trackOffsetMs;
     private double _trackRate = 1.0;
     private Dictionary<string, int> _lineShifts = new();
+    private Dictionary<string, int> _lineHolds = new();
+    private Dictionary<string, string> _lineTexts = new();
+    private List<AddedLyric> _addedLines = new();
     private HoldRepeat? _offsetHold;
     private TimingEditorWindow? _timingEditor;
     private DispatcherTimer? _offsetSave;
@@ -341,22 +344,30 @@ public partial class MainWindow : Window
         TxtTime.Text = $"{(int)pos.TotalMinutes}:{pos.Seconds:D2}";
 
         var lyricPos = LyricClockPos();
+        var lines = ShownLines();
 
         int idx = -1;
-        for (int i = _lines.Count - 1; i >= 0; i--)
+        for (int i = lines.Count - 1; i >= 0; i--)
         {
-            if (LyricsService.TimeOf(_lines[i], _lineShifts) > lyricPos) continue;
-            if (string.IsNullOrWhiteSpace(_lines[i].Text)) continue;
-            idx = i;
-            break;
+            if (LyricsService.LineIsActive(lines, i, lyricPos, _lineShifts, _lineHolds))
+            {
+                idx = i;
+                break;
+            }
         }
 
-        if (idx < 0 || !LyricsService.LineIsActive(_lines, idx, lyricPos, _lineShifts))
+        if (idx < 0)
         {
-            var upcoming = NextLyricText(idx < 0 ? -1 : idx);
-            var lastSung = idx >= 0 ? ToDisplay(_lines[idx].Text) : "";
-            if (string.IsNullOrWhiteSpace(lastSung))
-                lastSung = idx > 0 ? ToDisplay(_lines[idx - 1].Text) : "";
+            int reached = -1;
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                if (LyricsService.TimeOf(lines[i], _lineShifts) > lyricPos) continue;
+                if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
+                reached = i;
+                break;
+            }
+            var upcoming = NextLyricText(lines, reached < 0 ? -1 : reached);
+            var lastSung = reached >= 0 ? ToDisplay(lines[reached].Text) : "";
             TxtCurrent.Text = "";
             TxtTrans.Text = "";
             TxtPrev.Text = lastSung ?? "";
@@ -367,11 +378,11 @@ public partial class MainWindow : Window
         }
 
         {
-            var text = ToDisplay(_lines[idx].Text);
-            var trans = ToDisplay(_lines[idx].TranslatedText);
-            var prev = idx > 0 ? ToDisplay(_lines[idx - 1].Text) : "";
-            var next = NextLyricText(idx) ?? "";
-            var words = KaraokeWordsForLine(idx);
+            var text = ToDisplay(lines[idx].Text);
+            var trans = ToDisplay(lines[idx].TranslatedText);
+            var prev = idx > 0 ? ToDisplay(lines[idx - 1].Text) : "";
+            var next = NextLyricText(lines, idx) ?? "";
+            var words = KaraokeWordsForLine(lines, idx);
 
             TxtCurrent.Text = text;
             TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
@@ -379,7 +390,7 @@ public partial class MainWindow : Window
             TxtNext.Text = next;
             ApplyLineFonts(text, trans, prev, next);
 
-            var elapsed = (lyricPos - LyricsService.TimeOf(_lines[idx], _lineShifts)).TotalMilliseconds;
+            var elapsed = (lyricPos - LyricsService.TimeOf(lines[idx], _lineShifts)).TotalMilliseconds;
             if (elapsed < 0) elapsed = 0;
             SafeUpdateLyrics(text,
                 _settings.HideTranslation ? null : trans,
@@ -394,12 +405,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private string? NextLyricText(int afterIdx)
+    private List<LrcLine> ShownLines()
+        => LyricsService.ApplyEdits(_lines, CurrentTiming());
+
+    private string? NextLyricText(IReadOnlyList<LrcLine> lines, int afterIdx)
     {
-        for (int i = afterIdx + 1; i < _lines.Count; i++)
+        for (int i = afterIdx + 1; i < lines.Count; i++)
         {
-            if (string.IsNullOrWhiteSpace(_lines[i].Text)) continue;
-            return ToDisplay(_lines[i].Text);
+            if (string.IsNullOrWhiteSpace(lines[i].Text)) continue;
+            return ToDisplay(lines[i].Text);
         }
         return null;
     }
@@ -489,9 +503,9 @@ public partial class MainWindow : Window
         _karaokeSrc = null;
     }
 
-    private List<KaraokeWordTiming>? KaraokeWordsForLine(int idx)
+    private List<KaraokeWordTiming>? KaraokeWordsForLine(IReadOnlyList<LrcLine> lines, int idx)
     {
-        var src = _lines[idx].WordTimings;
+        var src = lines[idx].WordTimings;
         if (idx == _karaokeLineIdx && ReferenceEquals(src, _karaokeSrc))
             return _karaokeWords;
         _karaokeLineIdx = idx;
@@ -720,9 +734,9 @@ public partial class MainWindow : Window
         _overlay.PickSongRequested += () => _ = PickSongAsync(_overlay);
         _overlay.FullscreenRequested += ShowFullscreen;
         _overlay.TimingEditorRequested += OpenTimingEditor;
-        _overlay.SetOffsetLabel(_trackOffsetMs, _trackRate);
         _overlay.Closed += (_, _) => _overlay = null;
         _overlay.Show();
+        RefreshOffsetUi();
     }
 
     private void ShowFullscreen()
@@ -773,9 +787,7 @@ public partial class MainWindow : Window
     {
         FlushOffsetSave();
         var t = LyricOffsetStore.GetTiming(_lastTitle, _lastArtist);
-        _trackOffsetMs = t.OffsetMs;
-        _trackRate = t.Rate;
-        _lineShifts = t.Lines is { Count: > 0 } ? new Dictionary<string, int>(t.Lines) : new();
+        ApplyTimingState(t);
         RefreshOffsetUi();
     }
 
@@ -792,7 +804,7 @@ public partial class MainWindow : Window
                 () => _lastTitle,
                 () => _lastArtist,
                 () => _clock.Position,
-                () => _lines,
+                ShownLines,
                 LyricClockPos,
                 () => _settings.GlobalOffsetMs,
                 () => CurrentTiming(),
@@ -812,15 +824,28 @@ public partial class MainWindow : Window
     }
 
     private TrackTiming CurrentTiming()
-        => new TrackTiming(_trackOffsetMs, _trackRate,
-            _lineShifts.Count == 0 ? null : new Dictionary<string, int>(_lineShifts));
+        => new TrackTiming(
+            _trackOffsetMs,
+            _trackRate,
+            _lineShifts.Count == 0 ? null : new Dictionary<string, int>(_lineShifts),
+            _lineHolds.Count == 0 ? null : new Dictionary<string, int>(_lineHolds),
+            _lineTexts.Count == 0 ? null : new Dictionary<string, string>(_lineTexts),
+            _addedLines.Count == 0 ? null : [.. _addedLines]);
 
-    private void ApplyTiming(TrackTiming timing)
+    private void ApplyTimingState(TrackTiming timing)
     {
         timing = timing.Clamped();
         _trackOffsetMs = timing.OffsetMs;
         _trackRate = timing.Rate;
         _lineShifts = timing.Lines is { Count: > 0 } ? new Dictionary<string, int>(timing.Lines) : new();
+        _lineHolds = timing.Holds is { Count: > 0 } ? new Dictionary<string, int>(timing.Holds) : new();
+        _lineTexts = timing.Texts is { Count: > 0 } ? new Dictionary<string, string>(timing.Texts) : new();
+        _addedLines = timing.Added is { Count: > 0 } ? [.. timing.Added] : [];
+    }
+
+    private void ApplyTiming(TrackTiming timing)
+    {
+        ApplyTimingState(timing);
         ScheduleOffsetSave();
         RefreshOffsetUi();
         SyncLyrics();
@@ -891,12 +916,17 @@ public partial class MainWindow : Window
     {
         var label = LyricOffsetStore.FormatLabel(_trackOffsetMs, _trackRate);
         BtnOffset.Content = label;
-        var custom = _trackOffsetMs != 0 || Math.Abs(_trackRate - 1.0) >= 0.0005;
+        var custom = _trackOffsetMs != 0
+            || Math.Abs(_trackRate - 1.0) >= 0.0005
+            || _lineShifts.Count > 0
+            || _lineHolds.Count > 0
+            || _lineTexts.Count > 0
+            || _addedLines.Count > 0;
         BtnOffset.Foreground = new System.Windows.Media.SolidColorBrush(
             custom
                 ? System.Windows.Media.Color.FromRgb(0x00, 0xd4, 0xff)
                 : System.Windows.Media.Color.FromRgb(0xa0, 0xb0, 0xc0));
-        _overlay?.SetOffsetLabel(_trackOffsetMs, _trackRate);
+        _overlay?.SetOffsetLabel(_trackOffsetMs, _trackRate, custom);
     }
 
     private void ToggleOverlay_Click(object sender, RoutedEventArgs e)
@@ -932,13 +962,15 @@ public partial class MainWindow : Window
                 sb.AppendLine($"[ti:{_lastTitle}]");
                 sb.AppendLine("[by:desktop-lyric]");
                 sb.AppendLine();
-                foreach (var line in _lines)
+                var shown = ShownLines();
+                foreach (var line in shown)
                 {
-                    var t = line.Time;
+                    if (string.IsNullOrWhiteSpace(line.Text)) continue;
+                    var t = LyricsService.TimeOf(line, _lineShifts);
                     sb.AppendLine($"[{t.Minutes:D2}:{t.Seconds:D2}.{t.Milliseconds / 10:D2}]{line.Text}");
                 }
                 File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
-                MessageBox.Show($"saved {_lines.Count} lines", "export");
+                MessageBox.Show($"saved {shown.Count} lines", "export");
             }
             catch (Exception ex)
             {

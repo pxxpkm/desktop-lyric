@@ -60,12 +60,12 @@ public partial class OverlayWindow : Window
 
     public void RefreshTradButton() => ApplyTradButton();
 
-    public void SetOffsetLabel(int ms, double rate = 1.0)
+    public void SetOffsetLabel(int ms, double rate = 1.0, bool? custom = null)
     {
         if (!WindowGuard.CanTouch(this)) return;
         BtnOffset.Content = LyricOffsetStore.FormatLabel(ms, rate);
-        var custom = ms != 0 || Math.Abs(rate - 1.0) >= 0.0005;
-        BtnOffset.Foreground = custom
+        var isCustom = custom ?? (ms != 0 || Math.Abs(rate - 1.0) >= 0.0005);
+        BtnOffset.Foreground = isCustom
             ? new SolidColorBrush(Color.FromRgb(0x00, 0xd4, 0xff))
             : new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90));
     }

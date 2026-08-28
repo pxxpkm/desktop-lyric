@@ -1055,7 +1055,25 @@ public class LyricsService
     }
 
     public static string LineKey(LrcLine line)
-        => $"{(long)Math.Round(line.Time.TotalMilliseconds)}|{line.Text}";
+        => string.IsNullOrEmpty(line.SourceKey)
+            ? $"{(long)Math.Round(line.Time.TotalMilliseconds)}|{line.Text}"
+            : line.SourceKey;
+
+    public static bool IsAddedKey(string key)
+        => key.StartsWith("add|", StringComparison.Ordinal);
+
+    public static string AddedId(string key)
+        => IsAddedKey(key) ? key[4..] : key;
+
+    public static string AddedKey(string id) => "add|" + id;
+
+    public static int PrevSungIndex(IReadOnlyList<LrcLine> lines, int beforeIdx)
+    {
+        for (int i = beforeIdx - 1; i >= 0; i--)
+            if (!string.IsNullOrWhiteSpace(lines[i].Text))
+                return i;
+        return -1;
+    }
 
     public static TimeSpan TimeOf(LrcLine line, IReadOnlyDictionary<string, int>? shifts)
     {
@@ -1064,43 +1082,115 @@ public class LyricsService
         return line.Time;
     }
 
+    public static string DisplayText(LrcLine line, IReadOnlyDictionary<string, string>? texts)
+    {
+        if (texts is { Count: > 0 } && texts.TryGetValue(LineKey(line), out var t))
+            return t ?? "";
+        return line.Text;
+    }
+
+    /// <summary>
+    /// Apply per-track text overrides, hidden lines, and inserted live lines.
+    /// Original LineKey is kept on SourceKey so timing edits still match.
+    /// </summary>
+    public static List<LrcLine> ApplyEdits(IReadOnlyList<LrcLine> src, TrackTiming timing)
+    {
+        var result = new List<LrcLine>(src.Count + (timing.Added?.Count ?? 0));
+        var texts = timing.Texts;
+        foreach (var line in src)
+        {
+            var key = LineKey(line);
+            if (texts is { Count: > 0 } && texts.TryGetValue(key, out var repl))
+            {
+                if (string.IsNullOrWhiteSpace(repl)) continue;
+                var copy = new LrcLine(line.Time, repl)
+                {
+                    TranslatedText = line.TranslatedText,
+                    Duration = line.Duration,
+                    SourceKey = key,
+                };
+                result.Add(copy);
+            }
+            else
+                result.Add(line);
+        }
+        if (timing.Added is { Count: > 0 } added)
+        {
+            foreach (var a in added)
+            {
+                if (string.IsNullOrWhiteSpace(a.Text)) continue;
+                var at = Math.Clamp(a.AtMs, 0, LyricOffsetStore.MaxMs);
+                var id = string.IsNullOrEmpty(a.Id) ? $"t{at}" : a.Id;
+                result.Add(new LrcLine(TimeSpan.FromMilliseconds(at), a.Text)
+                {
+                    SourceKey = AddedKey(id),
+                });
+            }
+        }
+        return result.Count > 1 ? result.OrderBy(l => l.Time).ToList() : result;
+    }
+
     public static bool LineIsActive(IReadOnlyList<LrcLine> lines, int idx, TimeSpan pos,
-        IReadOnlyDictionary<string, int>? shifts = null)
+        IReadOnlyDictionary<string, int>? shifts = null,
+        IReadOnlyDictionary<string, int>? holds = null)
     {
         if (idx < 0 || idx >= lines.Count) return false;
         var line = lines[idx];
         if (string.IsNullOrWhiteSpace(line.Text)) return false;
         if (pos < TimeOf(line, shifts)) return false;
-        return pos < LineDisplayEnd(lines, idx, shifts);
+
+        var prev = PrevSungIndex(lines, idx);
+        if (prev >= 0)
+        {
+            var start = TimeOf(line, shifts);
+            var prevEnd = LineDisplayEnd(lines, prev, shifts, holds);
+            if (prevEnd > start && pos < prevEnd)
+                return false;
+        }
+
+        return pos < LineDisplayEnd(lines, idx, shifts, holds);
     }
 
     public static TimeSpan LineDisplayEnd(IReadOnlyList<LrcLine> lines, int idx,
-        IReadOnlyDictionary<string, int>? shifts = null)
+        IReadOnlyDictionary<string, int>? shifts = null,
+        IReadOnlyDictionary<string, int>? holds = null)
     {
         var line = lines[idx];
         var start = TimeOf(line, shifts);
         var nextSung = NextSungIndex(lines, idx);
         var next = nextSung >= 0 ? TimeOf(lines[nextSung], shifts) : TimeSpan.MaxValue;
 
+        TimeSpan end;
         if (next < TimeSpan.MaxValue
             && (next - start).TotalMilliseconds <= ConsecutiveMs)
-            return next;
-
-        var hold = start + TimeSpan.FromMilliseconds(DefaultLineMs);
-        if (line.Duration is { Ticks: > 0 } d)
+            end = next;
+        else
         {
-            var yrcEnd = start + d + TimeSpan.FromMilliseconds(HoldAfterMs);
-            if (yrcEnd > hold) hold = yrcEnd;
-        }
-        else if (line.WordTimings is { Count: > 0 } w)
-        {
-            var last = w[^1];
-            var sung = start + TimeSpan.FromMilliseconds(Math.Max(0, last.StartMs + last.DurationMs))
-                + TimeSpan.FromMilliseconds(HoldAfterMs);
-            if (sung > hold) hold = sung;
+            var hold = start + TimeSpan.FromMilliseconds(DefaultLineMs);
+            if (line.Duration is { Ticks: > 0 } d)
+            {
+                var yrcEnd = start + d + TimeSpan.FromMilliseconds(HoldAfterMs);
+                if (yrcEnd > hold) hold = yrcEnd;
+            }
+            else if (line.WordTimings is { Count: > 0 } w)
+            {
+                var last = w[^1];
+                var sung = start + TimeSpan.FromMilliseconds(Math.Max(0, last.StartMs + last.DurationMs))
+                    + TimeSpan.FromMilliseconds(HoldAfterMs);
+                if (sung > hold) hold = sung;
+            }
+            end = next < hold ? next : hold;
         }
 
-        return next < hold ? next : hold;
+        var extra = 0;
+        holds?.TryGetValue(LineKey(line), out extra);
+        if (extra != 0)
+        {
+            end += TimeSpan.FromMilliseconds(extra);
+            var minEnd = start + TimeSpan.FromMilliseconds(80);
+            if (end < minEnd) end = minEnd;
+        }
+        return end;
     }
 
     // wrote this thinking I'd need it for plain text lyrics but never used it
@@ -1122,4 +1212,6 @@ public record LrcLine(TimeSpan Time, string Text)
     public string? TranslatedText { get; set; }
     public List<KaraokeWordTiming>? WordTimings { get; set; }
     public TimeSpan? Duration { get; set; }
+    /// <summary>Original LineKey after a live text override or insert.</summary>
+    public string? SourceKey { get; set; }
 }
