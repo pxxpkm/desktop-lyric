@@ -806,6 +806,7 @@ public partial class MainWindow : Window
                 () => _lastArtist,
                 () => _clock.Position,
                 ShownLines,
+                () => _lines,
                 LyricClockPos,
                 () => _settings.GlobalOffsetMs,
                 () => CurrentTiming(),

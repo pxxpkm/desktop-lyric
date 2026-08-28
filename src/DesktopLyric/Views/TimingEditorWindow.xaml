@@ -41,7 +41,7 @@
                            Foreground="#00d4ff" VerticalAlignment="Center"/>
             </DockPanel>
 
-            <TextBlock Grid.Row="1" Text="版面同上原文下譯文。複製／匯出帶中文；匯入／貼上同一格式。會記住呢首歌。"
+            <TextBlock Grid.Row="1" Text="匯入會先清空再載入，唔會疊舊句。還原＝返原版歌詞（保留偏移／快慢）。清空＝畫面空白。"
                        Foreground="#80A0B0C0" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
             <StackPanel Grid.Row="2" Margin="0,0,0,10">
@@ -254,15 +254,15 @@
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="貼上" Click="Paste_Click"
-                                ToolTip="從剪貼簿插入（LRC 上原文下譯文，或純文字）。Ctrl+V"
+                                ToolTip="插入到而家列表（唔清空）。成份換走用匯入。Ctrl+V"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="匯出" Click="Export_Click"
-                                ToolTip="匯出 LRC（上原文下中文，同 overlay）"
+                                ToolTip="匯出而家畫面嘅 LRC（上原文下中文）"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                         <Button Content="匯入" Click="Import_Click"
-                                ToolTip="匯入 LRC。同一時間戳兩行＝原文＋譯文"
+                                ToolTip="先清空再載入 LRC，唔會同舊句重疊。還原可返原版"
                                 Background="#10FFFFFF" Foreground="#A0B0C0"
                                 BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand" Margin="0,0,6,4"/>
                     </WrapPanel>
@@ -273,7 +273,16 @@
                 <CheckBox x:Name="ChkFollow" DockPanel.Dock="Left" Content="跟隨播放"
                           IsChecked="True" Foreground="#A0B0C0" VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="還原" Click="Restore_Click"
+                            ToolTip="返原版歌詞（搜尋到嗰份）。保留整首偏移／快慢。改錯唔驚。"
+                            Background="#1800d4ff" Foreground="#00d4ff"
+                            BorderBrush="#4000d4ff" Padding="14,7" Cursor="Hand" Margin="0,0,6,0"/>
+                    <Button Content="清空" Click="Clear_Click"
+                            ToolTip="畫面歌詞清空。原版仲喺，撳還原就返。"
+                            Background="#10FFFFFF" Foreground="#A0B0C0"
+                            BorderBrush="#20FFFFFF" Padding="14,7" Cursor="Hand" Margin="0,0,6,0"/>
                     <Button Content="全部重設" Click="Reset_Click"
+                            ToolTip="連偏移／快慢都重設，返原版時機。"
                             Background="#10FFFFFF" Foreground="#A0B0C0"
                             BorderBrush="#20FFFFFF" Padding="14,7" Cursor="Hand" Margin="0,0,6,0"/>
                     <Button Content="完成" Click="Close_Click"

@@ -16,6 +16,7 @@ public partial class TimingEditorWindow : Window
     private readonly Func<string> _artist;
     private readonly Func<TimeSpan> _playPos;
     private readonly Func<IReadOnlyList<LrcLine>> _lines;
+    private readonly Func<IReadOnlyList<LrcLine>> _source;
     private readonly Func<TimeSpan> _lyricPos;
     private readonly Func<int> _globalMs;
     private readonly Func<TrackTiming> _getTiming;
@@ -36,6 +37,7 @@ public partial class TimingEditorWindow : Window
         Func<string> artist,
         Func<TimeSpan> playPos,
         Func<IReadOnlyList<LrcLine>> lines,
+        Func<IReadOnlyList<LrcLine>> source,
         Func<TimeSpan> lyricPos,
         Func<int> globalMs,
         Func<TrackTiming> getTiming,
@@ -46,6 +48,7 @@ public partial class TimingEditorWindow : Window
         _artist = artist;
         _playPos = playPos;
         _lines = lines;
+        _source = source;
         _lyricPos = lyricPos;
         _globalMs = globalMs;
         _getTiming = getTiming;
@@ -454,6 +457,7 @@ public partial class TimingEditorWindow : Window
                 : t.WithLineText(row.Key, text);
             // Empty box = keep the line's own translation (do not store "").
             t = t.WithLineTrans(row.Key, trans);
+            _apply(t);
         }
         _listSig = "";
         RebuildLines();
@@ -606,6 +610,32 @@ public partial class TimingEditorWindow : Window
         if (lastKey != null) SelectKey(lastKey);
     }
 
+    private void ReplaceClipLyrics(List<LyricsService.ClipLyric> parsed)
+    {
+        var t = LyricsService.ReplaceShown(_getTiming(), _source() ?? [], parsed);
+        _apply(t);
+        _listSig = "";
+        RebuildLines();
+    }
+
+    private void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        var t = LyricsService.RestoreLyrics(_getTiming());
+        _apply(t);
+        LoadFromTiming(t);
+        _listSig = "";
+        RebuildLines();
+    }
+
+    private void Clear_Click(object sender, RoutedEventArgs e)
+    {
+        if (ChkFollow != null) ChkFollow.IsChecked = false;
+        var t = LyricsService.ClearShown(_getTiming(), _source() ?? []);
+        _apply(t);
+        _listSig = "";
+        RebuildLines();
+    }
+
     private void Export_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new SaveFileDialog
@@ -635,7 +665,7 @@ public partial class TimingEditorWindow : Window
             var parsed = LyricsService.ParseClipboardLyrics(raw, 0);
             if (parsed.Count == 0) return;
             if (ChkFollow != null) ChkFollow.IsChecked = false;
-            ApplyClipLyrics(parsed);
+            ReplaceClipLyrics(parsed);
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
     }

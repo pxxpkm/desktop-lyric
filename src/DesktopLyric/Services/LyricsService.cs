@@ -1273,6 +1273,39 @@ public class LyricsService
         return result;
     }
 
+    /// <summary>Original downloaded lyrics. Keeps whole-song offset/rate.</summary>
+    public static TrackTiming RestoreLyrics(TrackTiming t) => new(t.OffsetMs, t.Rate);
+
+    /// <summary>Hide source lines and drop inserts. Overlay goes blank. 還原 brings them back.</summary>
+    public static TrackTiming ClearShown(TrackTiming t, IReadOnlyList<LrcLine> source)
+    {
+        Dictionary<string, string>? hide = null;
+        foreach (var line in source)
+        {
+            if (string.IsNullOrWhiteSpace(line.Text)) continue;
+            hide ??= new();
+            hide[LineKey(line)] = "";
+        }
+        return new(t.OffsetMs, t.Rate, null, null, hide, null, null);
+    }
+
+    /// <summary>Replace the displayed set with imported clips. Does not stack on top.</summary>
+    public static TrackTiming ReplaceShown(
+        TrackTiming t, IReadOnlyList<LrcLine> source, IReadOnlyList<ClipLyric> clips)
+    {
+        var cleared = ClearShown(t, source);
+        if (clips.Count == 0) return cleared;
+        var added = new List<AddedLyric>(clips.Count);
+        foreach (var clip in clips)
+        {
+            if (string.IsNullOrWhiteSpace(clip.Text)) continue;
+            added.Add(new AddedLyric(
+                clip.AtMs, clip.Text, Guid.NewGuid().ToString("N")[..8], clip.Trans));
+        }
+        return new(cleared.OffsetMs, cleared.Rate, null, null, cleared.Texts,
+            added.Count == 0 ? null : added, null);
+    }
+
     public static bool LineIsActive(IReadOnlyList<LrcLine> lines, int idx, TimeSpan pos,
         IReadOnlyDictionary<string, int>? shifts = null,
         IReadOnlyDictionary<string, int>? holds = null)

@@ -233,6 +233,57 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void replace_shown_does_not_stack_on_originals()
+    {
+        var src = new List<LrcLine>
+        {
+            new(TimeSpan.FromSeconds(1), "studio") { TranslatedText = "錄音室" },
+            new(TimeSpan.FromSeconds(2), "keep"),
+        };
+        var t = new TrackTiming(800, 1.03);
+        t = LyricsService.ReplaceShown(t, src,
+        [
+            new LyricsService.ClipLyric(1000, "live", "現場"),
+            new LyricsService.ClipLyric(2000, "hey"),
+        ]);
+        Assert.Equal(800, t.OffsetMs);
+        Assert.Equal(1.03, t.Rate, 3);
+        var shown = LyricsService.ApplyEdits(src, t);
+        Assert.Equal(2, shown.Count);
+        Assert.Equal("live", shown[0].Text);
+        Assert.Equal("現場", shown[0].TranslatedText);
+        Assert.Equal("hey", shown[1].Text);
+        Assert.DoesNotContain(shown, l => l.Text is "studio" or "keep");
+
+        var again = LyricsService.ReplaceShown(t, src,
+            [new LyricsService.ClipLyric(3000, "once")]);
+        shown = LyricsService.ApplyEdits(src, again);
+        Assert.Single(shown);
+        Assert.Equal("once", shown[0].Text);
+    }
+
+    [Fact]
+    public void restore_lyrics_keeps_clock_and_clear_blanks_overlay()
+    {
+        var src = new List<LrcLine> { new(TimeSpan.FromSeconds(1), "hello") };
+        var t = new TrackTiming(500, 1.02)
+            .WithLineShift(LyricsService.LineKey(src[0]), 100)
+            .WithAdded(new AddedLyric(2000, "extra", "x1"));
+        var cleared = LyricsService.ClearShown(t, src);
+        Assert.Empty(LyricsService.ApplyEdits(src, cleared));
+        Assert.Equal(500, cleared.OffsetMs);
+
+        var restored = LyricsService.RestoreLyrics(t);
+        var shown = LyricsService.ApplyEdits(src, restored);
+        Assert.Single(shown);
+        Assert.Equal("hello", shown[0].Text);
+        Assert.Equal(500, restored.OffsetMs);
+        Assert.Equal(1.02, restored.Rate, 3);
+        Assert.Null(restored.Added);
+        Assert.Null(restored.Lines);
+    }
+
+    [Fact]
     public void placement_ms_splits_the_gap()
     {
         Assert.Equal(11_500, LyricsService.PlacementMs(
