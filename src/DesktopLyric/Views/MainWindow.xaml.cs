@@ -968,7 +968,7 @@ public partial class MainWindow : Window
                 sb.AppendLine($"[ti:{_lastTitle}]");
                 sb.AppendLine("[by:desktop-lyric]");
                 sb.AppendLine();
-                sb.Append(LyricsService.FormatShownLrc(shown, _lineShifts));
+                sb.Append(LyricsService.FormatShownLrc(shown, CurrentTiming()));
                 File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
                 MessageBox.Show($"saved {shown.Count} lines", "export");
             }

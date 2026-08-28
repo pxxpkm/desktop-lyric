@@ -1213,12 +1213,24 @@ public class LyricsService
     /// Overlay layout: original, then translation on the next line at the same stamp.
     /// </summary>
     public static string FormatShownLrc(IReadOnlyList<LrcLine> lines, IReadOnlyDictionary<string, int>? shifts)
+        => FormatShownLrc(lines, new TrackTiming(0, 1.0, shifts is { Count: > 0 } ? new Dictionary<string, int>(shifts) : null), headers: false);
+
+    public static string FormatShownLrc(IReadOnlyList<LrcLine> lines, TrackTiming timing, bool headers = true)
     {
         var sb = new System.Text.StringBuilder();
+        if (headers)
+        {
+            sb.Append("[offset:");
+            sb.Append(timing.OffsetMs);
+            sb.AppendLine("]");
+            sb.Append("[dl_rate:");
+            sb.Append(timing.Rate.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+            sb.AppendLine("]");
+        }
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line.Text)) continue;
-            var stamp = FormatStamp(TimeOf(line, shifts));
+            var stamp = FormatStamp(TimeOf(line, timing.Lines));
             sb.Append(stamp);
             sb.AppendLine(line.Text);
             if (!string.IsNullOrWhiteSpace(line.TranslatedText))
@@ -1228,6 +1240,36 @@ public class LyricsService
             }
         }
         return sb.ToString();
+    }
+
+    public static (int? OffsetMs, double? Rate) ParseTimingTags(string raw)
+    {
+        int? offset = null;
+        double? rate = null;
+        if (string.IsNullOrWhiteSpace(raw)) return (null, null);
+        foreach (var rawLine in raw.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.Length < 8 || line[0] != '[') continue;
+            var close = line.IndexOf(']');
+            if (close < 2) continue;
+            var inner = line[1..close];
+            var colon = inner.IndexOf(':');
+            if (colon <= 0) continue;
+            var key = inner[..colon].Trim();
+            var val = inner[(colon + 1)..].Trim();
+            if (key.Equals("offset", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(val, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var ms))
+                offset = Math.Clamp(ms, LyricOffsetStore.MinMs, LyricOffsetStore.MaxMs);
+            else if ((key.Equals("dl_rate", StringComparison.OrdinalIgnoreCase)
+                    || key.Equals("rate", StringComparison.OrdinalIgnoreCase))
+                && double.TryParse(val, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var r)
+                && r > 0)
+                rate = Math.Clamp(r, LyricOffsetStore.RateMin, LyricOffsetStore.RateMax);
+        }
+        return (offset, rate);
     }
 
     public readonly record struct ClipLyric(int AtMs, string Text, string? Trans = null);
@@ -1291,10 +1333,14 @@ public class LyricsService
 
     /// <summary>Replace the displayed set with imported clips. Does not stack on top.</summary>
     public static TrackTiming ReplaceShown(
-        TrackTiming t, IReadOnlyList<LrcLine> source, IReadOnlyList<ClipLyric> clips)
+        TrackTiming t, IReadOnlyList<LrcLine> source, IReadOnlyList<ClipLyric> clips,
+        int? offsetMs = null, double? rate = null)
     {
         var cleared = ClearShown(t, source);
-        if (clips.Count == 0) return cleared;
+        var off = offsetMs ?? cleared.OffsetMs;
+        var r = rate ?? cleared.Rate;
+        if (clips.Count == 0)
+            return new(off, r, null, null, cleared.Texts, null, null);
         var added = new List<AddedLyric>(clips.Count);
         foreach (var clip in clips)
         {
@@ -1302,7 +1348,7 @@ public class LyricsService
             added.Add(new AddedLyric(
                 clip.AtMs, clip.Text, Guid.NewGuid().ToString("N")[..8], clip.Trans));
         }
-        return new(cleared.OffsetMs, cleared.Rate, null, null, cleared.Texts,
+        return new(off, r, null, null, cleared.Texts,
             added.Count == 0 ? null : added, null);
     }
 

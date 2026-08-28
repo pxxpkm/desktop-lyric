@@ -571,7 +571,7 @@ public partial class TimingEditorWindow : Window
     private void CopyAll()
     {
         var t = _getTiming();
-        TryClipboard(LyricsService.FormatShownLrc(ShownSung(), t.Lines));
+        TryClipboard(LyricsService.FormatShownLrc(ShownSung(), t));
     }
 
     private void CopySelectedText()
@@ -610,10 +610,11 @@ public partial class TimingEditorWindow : Window
         if (lastKey != null) SelectKey(lastKey);
     }
 
-    private void ReplaceClipLyrics(List<LyricsService.ClipLyric> parsed)
+    private void ReplaceClipLyrics(List<LyricsService.ClipLyric> parsed, int? offsetMs = null, double? rate = null)
     {
-        var t = LyricsService.ReplaceShown(_getTiming(), _source() ?? [], parsed);
+        var t = LyricsService.ReplaceShown(_getTiming(), _source() ?? [], parsed, offsetMs, rate);
         _apply(t);
+        LoadFromTiming(t);
         _listSig = "";
         RebuildLines();
     }
@@ -646,7 +647,7 @@ public partial class TimingEditorWindow : Window
         if (dlg.ShowDialog() != true) return;
         try
         {
-            File.WriteAllText(dlg.FileName, LyricsService.FormatShownLrc(ShownSung(), _getTiming().Lines),
+            File.WriteAllText(dlg.FileName, LyricsService.FormatShownLrc(ShownSung(), _getTiming()),
                 System.Text.Encoding.UTF8);
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
@@ -665,7 +666,8 @@ public partial class TimingEditorWindow : Window
             var parsed = LyricsService.ParseClipboardLyrics(raw, 0);
             if (parsed.Count == 0) return;
             if (ChkFollow != null) ChkFollow.IsChecked = false;
-            ReplaceClipLyrics(parsed);
+            var (off, rate) = LyricsService.ParseTimingTags(raw);
+            ReplaceClipLyrics(parsed, off, rate);
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
     }

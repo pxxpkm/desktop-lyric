@@ -389,6 +389,36 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void format_shown_lrc_writes_offset_and_rate()
+    {
+        var line = new LrcLine(TimeSpan.FromSeconds(10), "hello");
+        var t = new TrackTiming(2000, 1.03);
+        var text = LyricsService.FormatShownLrc([line], t);
+        Assert.Contains("[offset:2000]", text);
+        Assert.Contains("[dl_rate:1.030]", text);
+        Assert.Contains("[0:10.00]hello", text);
+    }
+
+    [Fact]
+    public void parse_timing_tags_and_replace_keeps_them()
+    {
+        var raw = "[offset:-1500]\n[dl_rate:1.015]\n[00:10.00]きみの声\n[00:10.00]你的聲音\n";
+        var (off, rate) = LyricsService.ParseTimingTags(raw);
+        Assert.Equal(-1500, off);
+        Assert.Equal(1.015, rate!.Value, 3);
+        var clips = LyricsService.ParseClipboardLyrics(raw, 0);
+        var src = new List<LrcLine> { new(TimeSpan.FromSeconds(1), "old") };
+        var t = LyricsService.ReplaceShown(new TrackTiming(0, 1.0), src, clips, off, rate);
+        Assert.Equal(-1500, t.OffsetMs);
+        Assert.Equal(1.015, t.Rate, 3);
+        var shown = LyricsService.ApplyEdits(src, t);
+        Assert.Single(shown);
+        Assert.Equal("きみの声", shown[0].Text);
+        Assert.Equal("你的聲音", shown[0].TranslatedText);
+        Assert.Equal(TimeSpan.FromSeconds(10), shown[0].Time);
+    }
+
+    [Fact]
     public void lines_sorted_by_time()
     {
         var lrc = "[00:30.00]late\n[00:05.00]early\n[00:15.00]middle";
