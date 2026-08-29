@@ -1032,6 +1032,7 @@ public partial class MainWindow : Window
             };
             if (IsVisible) _timingEditor.Owner = this;
             _timingEditor.Closed += (_, _) => _timingEditor = null;
+            RunLog.Write("timing-editor-open");
             _timingEditor.Show();
         }
         catch (Exception ex)

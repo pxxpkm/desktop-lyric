@@ -125,7 +125,7 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="偏移" Foreground="#E8EEF4" FontSize="13" VerticalAlignment="Center"/>
                     <Slider x:Name="SldOffset" Grid.Column="1" Minimum="-180000" Maximum="180000"
-                            SmallChange="50" LargeChange="50" TickFrequency="50" IsSnapToTickEnabled="True"
+                            SmallChange="50" LargeChange="50"
                             IsMoveToPointEnabled="False"
                             Thumb.DragStarted="Slider_DragStarted"
                             Thumb.DragCompleted="Slider_DragCompleted"/>

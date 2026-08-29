@@ -16,6 +16,8 @@ internal sealed class HoldRepeat : IDisposable
     private readonly Stopwatch _sw = new();
     private int _sign;
 
+    public bool IsHeld => _timer.IsEnabled;
+
     public HoldRepeat(Action<int> step)
     {
         _step = step;

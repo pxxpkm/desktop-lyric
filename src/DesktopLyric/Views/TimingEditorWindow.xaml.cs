@@ -64,10 +64,11 @@ public partial class TimingEditorWindow : Window
             : -LyricOffsetStore.HoldStepMs));
         LstLines.SelectionChanged += (_, _) => FillEditBox();
         _ready = true;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         _timer.Tick += (_, _) => RefreshLive();
         _timer.Start();
         RefreshLive();
+        RunLog.Write("timing-editor");
     }
 
     private void LoadFromTiming(TrackTiming t)
@@ -93,18 +94,16 @@ public partial class TimingEditorWindow : Window
         if (t.Trans != null)
             foreach (var kv in t.Trans) shiftSum += kv.Value.Length;
         shiftSum += t.Added?.Count ?? 0;
-        var transChars = 0;
-        foreach (var line in lines)
-            transChars += line.TranslatedText?.Length ?? 0;
-        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{t.Holds?.Count ?? 0}|{t.Texts?.Count ?? 0}|{t.Trans?.Count ?? 0}|{shiftSum}|{transChars}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
+        var sig = $"{lines.Count}|{shifts?.Count ?? 0}|{t.Holds?.Count ?? 0}|{t.Texts?.Count ?? 0}|{t.Trans?.Count ?? 0}|{shiftSum}|{lines.FirstOrDefault()?.Text}|{lines.LastOrDefault()?.Text}";
         if (sig == _listSig && LstLines.Items.Count > 0)
         {
             FillEditBox();
             return;
         }
+        if (LiveLocked) return;
         _listSig = sig;
         var keepKey = (LstLines.SelectedItem as LineRow)?.Key;
-        LstLines.Items.Clear();
+        var rows = new List<LineRow>();
         LineRow? reselect = null;
         foreach (var line in lines)
         {
@@ -122,13 +121,20 @@ public partial class TimingEditorWindow : Window
             var row = new LineRow(line, key,
                 $"[{(int)shown.TotalMinutes}:{shown.Seconds:D2}.{shown.Milliseconds / 10:D2}]{mark}  {line.Text}",
                 LyricsService.ResolvedTranslation(lines, line) ?? "");
-            LstLines.Items.Add(row);
+            rows.Add(row);
             if (keepKey != null && key == keepKey) reselect = row;
         }
+        LstLines.ItemsSource = rows;
         if (reselect != null) LstLines.SelectedItem = reselect;
         RefreshLineLabel();
         FillEditBox();
     }
+
+    private bool LiveLocked =>
+        _dragging || _dragRow != null
+        || _lineHold?.IsHeld == true
+        || _rateHold?.IsHeld == true
+        || _stayHold?.IsHeld == true;
 
     private void RefreshLive()
     {
@@ -138,8 +144,8 @@ public partial class TimingEditorWindow : Window
             var play = _playPos();
             var lyric = _lyricPos();
             TxtClock.Text = $"播放 {Fmt(play)}   →   歌詞 {Fmt(lyric)}";
+            if (LiveLocked) return;
             RebuildLines();
-            if (_dragging) return;
             var t = _getTiming();
             if (Math.Abs(SldOffset.Value - t.OffsetMs) > 1)
                 LoadFromTiming(t);
@@ -324,7 +330,8 @@ public partial class TimingEditorWindow : Window
     {
         if (!_ready || _syncing) return;
         var cur = _getTiming();
-        _apply(cur with { OffsetMs = (int)SldOffset.Value });
+        var ms = (int)Math.Round(SldOffset.Value / 50.0) * 50;
+        _apply(cur with { OffsetMs = ms });
     }
 
     private void NudgeRate(int dir)
@@ -358,8 +365,12 @@ public partial class TimingEditorWindow : Window
         var cur = 0;
         t.Lines?.TryGetValue(row.Key, out cur);
         _apply(t.WithLineShift(row.Key, cur + delta));
-        _listSig = "";
-        RebuildLines();
+        RefreshLineLabel();
+        if (!LiveLocked)
+        {
+            _listSig = "";
+            RebuildLines();
+        }
     }
 
     private void NudgeStay(int delta)
@@ -370,8 +381,12 @@ public partial class TimingEditorWindow : Window
         var cur = 0;
         t.Holds?.TryGetValue(row.Key, out cur);
         _apply(t.WithLineHold(row.Key, cur + delta));
-        _listSig = "";
-        RebuildLines();
+        RefreshLineLabel();
+        if (!LiveLocked)
+        {
+            _listSig = "";
+            RebuildLines();
+        }
     }
 
     private void StayLonger_Down(object sender, MouseButtonEventArgs e)
@@ -388,7 +403,11 @@ public partial class TimingEditorWindow : Window
         _stayHold?.Down(-1, sender as IInputElement);
     }
 
-    private void StayHold_Up(object sender, MouseEventArgs e) => _stayHold?.Up();
+    private void StayHold_Up(object sender, MouseEventArgs e)
+    {
+        _stayHold?.Up();
+        FinishHoldRebuild();
+    }
 
     private void LineEarlier_Down(object sender, MouseButtonEventArgs e)
     {
@@ -404,7 +423,17 @@ public partial class TimingEditorWindow : Window
         _lineHold?.Down(-1, sender as IInputElement);
     }
 
-    private void LineHold_Up(object sender, MouseEventArgs e) => _lineHold?.Up();
+    private void LineHold_Up(object sender, MouseEventArgs e)
+    {
+        _lineHold?.Up();
+        FinishHoldRebuild();
+    }
+
+    private void FinishHoldRebuild()
+    {
+        _listSig = "";
+        RebuildLines();
+    }
 
     private void Align_Click(object sender, RoutedEventArgs e)
     {
@@ -761,6 +790,7 @@ public partial class TimingEditorWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        RunLog.Write("timing-editor-closed");
         _timer.Stop();
         _lineHold?.Dispose();
         _lineHold = null;
