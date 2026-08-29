@@ -69,6 +69,7 @@ public partial class MainWindow : Window
     private int _paintPhase = int.MinValue;
     private bool? _lastPlaying;
     private long _lastTlMs;
+    private long _lastClockQueueMs;
     private volatile bool _forceTimeline;
     private readonly Dictionary<string, string> _s2t = new();
     private GlobalSystemMediaTransportControlsSessionPlaybackInfo? _heldPlayback;
@@ -393,6 +394,12 @@ public partial class MainWindow : Window
                 return;
             }
             if (_clockQueued) return;
+            if (!_forceTimeline)
+            {
+                var now = Environment.TickCount64;
+                if (now - _lastClockQueueMs < 400) return;
+                _lastClockQueueMs = now;
+            }
             _clockQueued = true;
             d.BeginInvoke(() =>
             {
