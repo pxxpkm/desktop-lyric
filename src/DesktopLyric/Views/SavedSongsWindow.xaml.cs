@@ -14,6 +14,7 @@ public partial class SavedSongsWindow : Window
     public SavedSongsWindow(LyricsService lyrics)
     {
         InitializeComponent();
+        ShellWindow.NeverInTaskbar(this);
         _lyrics = lyrics;
         Reload();
     }

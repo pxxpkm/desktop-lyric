@@ -24,6 +24,7 @@ public partial class OverlayWindow : Window
     public OverlayWindow(AppSettings settings)
     {
         InitializeComponent();
+        ShellWindow.NeverInTaskbar(this);
         _settings = settings;
         ApplyAccentColor();
         ApplyTradButton();

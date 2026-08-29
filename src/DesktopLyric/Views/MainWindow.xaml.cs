@@ -780,13 +780,13 @@ public partial class MainWindow : Window
         FlushOffsetSave();
         if (_fullscreen is not { IsVisible: true })
             ShowOverlay();
-        ShowInTaskbar = false;
         Hide();
+        ShellWindow.Unpin(this);
     }
 
     public void RestoreFromOverlay()
     {
-        ShowInTaskbar = true;
+        ShellWindow.Pin(this);
         Show();
         WindowState = WindowState.Normal;
         Activate();

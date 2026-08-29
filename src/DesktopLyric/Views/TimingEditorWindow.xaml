@@ -7,6 +7,7 @@
         Background="Transparent"
         WindowStyle="None"
         AllowsTransparency="True"
+        ShowInTaskbar="False"
         ResizeMode="CanResizeWithGrip"
         FontFamily="Noto Sans HK Medium, Microsoft JhengHei UI, Segoe UI"
         MouseLeftButtonDown="Window_Drag"

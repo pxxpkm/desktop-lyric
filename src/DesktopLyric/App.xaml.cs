@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using DesktopLyric.Services;
@@ -12,6 +13,8 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        try { SetCurrentProcessExplicitAppUserModelID("DesktopLyric.App"); }
+        catch { }
         _mutex = new Mutex(true, "DesktopLyric_SingleInstance", out bool createdNew);
         _ownsMutex = createdNew;
         if (!createdNew)
@@ -54,4 +57,7 @@ public partial class App : Application
         _mutex = null;
         base.OnExit(e);
     }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetCurrentProcessExplicitAppUserModelID(string appID);
 }

@@ -26,6 +26,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(AppSettings settings)
     {
         InitializeComponent();
+        ShellWindow.NeverInTaskbar(this);
         _settings = settings;
         BuildAccentChips();
         FillFonts();

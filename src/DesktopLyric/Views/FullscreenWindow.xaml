@@ -8,6 +8,7 @@
         ResizeMode="NoResize"
         Background="#0a0a12"
         Topmost="True"
+        ShowInTaskbar="False"
         FontFamily="Noto Sans HK Medium, Noto Sans HK, Segoe UI"
         TextOptions.TextFormattingMode="Ideal"
         TextOptions.TextRenderingMode="Grayscale"

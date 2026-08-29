@@ -19,6 +19,7 @@ public partial class FullscreenWindow : Window
     public FullscreenWindow(AppSettings settings)
     {
         InitializeComponent();
+        ShellWindow.NeverInTaskbar(this);
         _settings = settings;
         ApplyTradButton();
         ApplyLayout();
