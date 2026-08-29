@@ -86,7 +86,11 @@ public partial class MainWindow : Window
         _syncTimer.Tick += (_, _) =>
         {
             try { SyncLyrics(); }
-            catch (Exception ex) { ErrorLog.Write(ex); }
+            catch (Exception ex)
+            {
+                ErrorLog.Write(ex);
+                RunLog.Write("sync-ex " + ex.GetType().Name);
+            }
         };
 
         ApplySettings();
@@ -94,6 +98,22 @@ public partial class MainWindow : Window
         ApplyFontButton();
         WireTray();
         _offsetHold = new HoldRepeat(NudgeOffset);
+        var hb = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        hb.Tick += (_, _) =>
+        {
+            try
+            {
+                using var p = System.Diagnostics.Process.GetCurrentProcess();
+                RunLog.Write("hb ws=" + (p.WorkingSet64 / 1_048_576) + "MB"
+                    + " gc=" + (GC.GetTotalMemory(false) / 1_048_576) + "MB"
+                    + " play=" + _clock.IsPlaying
+                    + " editor=" + (_timingEditor != null)
+                    + " lines=" + _lines.Count
+                    + " pos=" + (int)_clock.Position.TotalSeconds);
+            }
+            catch { }
+        };
+        hb.Start();
     }
 
     private void WireTray()
@@ -404,6 +424,7 @@ public partial class MainWindow : Window
             {
                 _clockFails = 0;
                 _clock.Freeze();
+                RunLog.Write("clock-freeze smtc-fail");
             }
         }
         finally
@@ -1071,6 +1092,10 @@ public partial class MainWindow : Window
         ScheduleOffsetSave();
         RefreshOffsetUi();
         SyncLyrics();
+        RunLog.Trace("timing-apply off=" + timing.OffsetMs
+            + " rate=" + timing.Rate.ToString("0.000")
+            + " shifts=" + (timing.Lines?.Count ?? 0)
+            + " holds=" + (timing.Holds?.Count ?? 0));
     }
 
     private void TimingEditor_Click(object sender, RoutedEventArgs e) => OpenTimingEditor();

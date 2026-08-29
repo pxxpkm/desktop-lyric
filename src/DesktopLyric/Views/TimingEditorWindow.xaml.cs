@@ -127,6 +127,7 @@ public partial class TimingEditorWindow : Window
             if (keepKey != null && key == keepKey) reselect = row;
         }
         LstLines.ItemsSource = rows;
+        RunLog.Trace("timing-rebuild n=" + rows.Count);
         if (reselect != null) LstLines.SelectedItem = reselect;
         RefreshLineLabel();
         FillEditBox();
@@ -153,7 +154,11 @@ public partial class TimingEditorWindow : Window
             if (Math.Abs(SldOffset.Value - t.OffsetMs) > 1)
                 LoadFromTiming(t);
         }
-        catch (Exception ex) { ErrorLog.Write(ex); }
+        catch (Exception ex)
+        {
+            ErrorLog.Write(ex);
+            RunLog.Write("timing-live-ex " + ex.GetType().Name + " " + ex.Message);
+        }
     }
 
     private void Lines_UserPick(object sender, MouseButtonEventArgs e)
@@ -255,6 +260,8 @@ public partial class TimingEditorWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
+            try
+            {
             if (LiveLocked || ChkFollow?.IsChecked == false) return;
             var sv = FindScrollViewer(LstLines);
             if (sv == null) return;
@@ -267,11 +274,14 @@ public partial class TimingEditorWindow : Window
                 if (at.Y >= 12 && bottom <= sv.ViewportHeight - 12) return;
                 var dest = sv.VerticalOffset + at.Y - sv.ViewportHeight * 0.35;
                 sv.ScrollToVerticalOffset(Math.Max(0, dest));
+                RunLog.Trace("follow-scroll i=" + index);
                 return;
             }
             if (LstLines.Items.Count == 0 || sv.ExtentHeight < 1) return;
             var avg = sv.ExtentHeight / LstLines.Items.Count;
             sv.ScrollToVerticalOffset(Math.Max(0, avg * index - sv.ViewportHeight * 0.35));
+            }
+            catch (Exception ex) { RunLog.Write("follow-scroll-ex " + ex.GetType().Name); }
         }, DispatcherPriority.Background);
     }
 

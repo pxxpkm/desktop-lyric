@@ -42,6 +42,10 @@ public partial class App : Application
         FontLoader.Load();
         ErrorLog.Attach(this);
         RunLog.Write("start " + (Environment.ProcessPath ?? ""));
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try { RunLog.Write("process-exit"); } catch { }
+        };
         Tray = new TrayIconService();
         Tray.Start();
         base.OnStartup(e);

@@ -16,7 +16,7 @@ internal static class ErrorLog
         app.DispatcherUnhandledException += (_, e) =>
         {
             Write(e.Exception);
-            RunLog.Write("ui-exception " + e.Exception.GetType().Name);
+            RunLog.Write("ui-exception " + e.Exception.GetType().Name + " " + OneLine(e.Exception));
             e.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
@@ -25,7 +25,8 @@ internal static class ErrorLog
             {
                 Write(ex);
                 RunLog.Write("unhandled " + ex.GetType().Name
-                    + (e.IsTerminating ? " terminating" : ""));
+                    + (e.IsTerminating ? " terminating" : "")
+                    + " " + OneLine(ex));
             }
             else
                 RunLog.Write("unhandled " + e.ExceptionObject);
@@ -35,6 +36,13 @@ internal static class ErrorLog
             Write(e.Exception);
             RunLog.Write("unobserved-task " + e.Exception.GetType().Name);
             e.SetObserved();
+        };
+        AppDomain.CurrentDomain.FirstChanceException += (_, e) =>
+        {
+            var ex = e.Exception;
+            if (ex is AccessViolationException or System.Runtime.InteropServices.SEHException
+                or OutOfMemoryException)
+                RunLog.Write("first-chance " + ex.GetType().Name + " " + (ex.Message ?? ""));
         };
     }
 
@@ -60,5 +68,17 @@ internal static class ErrorLog
             }
         }
         catch { }
+    }
+
+    private static string OneLine(Exception ex)
+    {
+        var msg = (ex.Message ?? "").Replace('\n', ' ').Replace('\r', ' ');
+        if (msg.Length > 160) msg = msg[..160];
+        var st = ex.StackTrace ?? "";
+        var n = st.IndexOf('\n');
+        if (n > 0) st = st[..n];
+        st = st.Trim();
+        if (st.Length > 180) st = st[..180];
+        return msg + " | " + st;
     }
 }
