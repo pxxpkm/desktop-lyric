@@ -598,9 +598,12 @@ public partial class MainWindow : Window
             bmp.Freeze();
             if (_forceClose || !IsLoaded || artGen != _artGen) return;
             _albumArt = bmp;
-            AlbumArt.Source = bmp;
+            // Image.Source on an AllowsTransparency window has been taking
+            // down wpfgfx ~2s after art-done (no dump). Keep the bitmap for
+            // the opaque fullscreen view only.
             if (WindowGuard.CanTouch(_fullscreen))
                 _fullscreen!.SetAlbumArt(bmp);
+            RunLog.Write("art-ui-skip-layered");
         }
         catch (Exception ex)
         {

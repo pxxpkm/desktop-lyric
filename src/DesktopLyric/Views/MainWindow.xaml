@@ -75,6 +75,9 @@
                     </Grid.ColumnDefinitions>
                     <Border Grid.Column="0" CornerRadius="8" Width="44" Height="44"
                             Background="#15FFFFFF" ClipToBounds="True">
+                        <Border.CacheMode>
+                            <BitmapCache EnableClearType="False" SnapsToDevicePixels="True"/>
+                        </Border.CacheMode>
                         <Image x:Name="AlbumArt" Stretch="Uniform"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -100,6 +103,9 @@
             <!-- Lyrics -->
             <Border Grid.Row="3" CornerRadius="12" Padding="16,12" Margin="0,0,0,10"
                     BorderThickness="1" BorderBrush="#12FFFFFF">
+                <Border.CacheMode>
+                    <BitmapCache RenderAtScale="1.25" EnableClearType="False" SnapsToDevicePixels="False"/>
+                </Border.CacheMode>
                 <Border.Background>
                     <SolidColorBrush Color="#0a0a12" Opacity="0.6"/>
                 </Border.Background>
