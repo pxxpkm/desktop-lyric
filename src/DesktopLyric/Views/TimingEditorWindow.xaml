@@ -4,16 +4,16 @@
         Title="時機編輯"
         Height="740" Width="520"
         WindowStartupLocation="CenterOwner"
-        Background="Transparent"
+        Background="#0d0d18"
         WindowStyle="None"
-        AllowsTransparency="True"
+        AllowsTransparency="False"
         ShowInTaskbar="False"
         ResizeMode="CanResizeWithGrip"
         FontFamily="Noto Sans HK Medium, Microsoft JhengHei UI, Segoe UI"
         MouseLeftButtonDown="Window_Drag"
         PreviewKeyDown="Window_PreviewKeyDown">
 
-    <Border CornerRadius="16" BorderThickness="1" Margin="8">
+    <Border CornerRadius="0" BorderThickness="0" Margin="0">
         <Border.BorderBrush>
             <SolidColorBrush Color="#28FFFFFF"/>
         </Border.BorderBrush>

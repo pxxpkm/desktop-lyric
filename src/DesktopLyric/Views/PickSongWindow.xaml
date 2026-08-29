@@ -4,24 +4,21 @@
         Title="選擇歌詞"
         Height="560" Width="460"
         WindowStartupLocation="CenterOwner"
-        Background="Transparent"
+        Background="#0d0d18"
         WindowStyle="None"
-        AllowsTransparency="True"
+        AllowsTransparency="False"
         ShowInTaskbar="False"
         ResizeMode="CanResizeWithGrip"
         FontFamily="Noto Sans HK Medium, Microsoft JhengHei UI, Segoe UI"
         MouseLeftButtonDown="Window_Drag">
 
-    <Border CornerRadius="16" BorderThickness="1" Margin="8">
+    <Border CornerRadius="0" BorderThickness="0" Margin="0">
         <Border.BorderBrush>
             <SolidColorBrush Color="#28FFFFFF"/>
         </Border.BorderBrush>
         <Border.Background>
-            <SolidColorBrush Color="#E60d0d18"/>
+            <SolidColorBrush Color="#0d0d18"/>
         </Border.Background>
-        <Border.Effect>
-            <DropShadowEffect Color="#000" BlurRadius="24" Opacity="0.45" ShadowDepth="4"/>
-        </Border.Effect>
 
         <Grid Margin="18,14,18,14">
             <Grid.RowDefinitions>

@@ -32,6 +32,7 @@ public partial class TimingEditorWindow : Window
     private HoldRepeat? _stayHold;
     private LineRow? _dragRow;
     private Point _dragStart;
+    private bool _followUpdating;
 
     public TimingEditorWindow(
         Func<string> title,
@@ -62,9 +63,13 @@ public partial class TimingEditorWindow : Window
         _stayHold = new HoldRepeat(delta => NudgeStay(delta >= 0
             ? LyricOffsetStore.HoldStepMs
             : -LyricOffsetStore.HoldStepMs));
-        LstLines.SelectionChanged += (_, _) => FillEditBox();
+        LstLines.SelectionChanged += (_, _) =>
+        {
+            if (_followUpdating) return;
+            FillEditBox();
+        };
         _ready = true;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _timer.Tick += (_, _) => RefreshLive();
         _timer.Start();
         RefreshLive();
@@ -142,10 +147,12 @@ public partial class TimingEditorWindow : Window
     {
         try
         {
-            TxtTrack.Text = $"{_title()}  ·  {_artist()}";
+            var track = $"{_title()}  ·  {_artist()}";
+            if (TxtTrack.Text != track) TxtTrack.Text = track;
             var play = _playPos();
             var lyric = _lyricPos();
-            TxtClock.Text = $"播放 {Fmt(play)}   →   歌詞 {Fmt(lyric)}";
+            var clock = $"播放 {Fmt(play)}   →   歌詞 {Fmt(lyric)}";
+            if (TxtClock.Text != clock) TxtClock.Text = clock;
             if (LiveLocked) return;
             if (ChkFollow?.IsChecked != false)
                 HighlightCurrent(lyric);
@@ -244,7 +251,11 @@ public partial class TimingEditorWindow : Window
             {
                 _followKey = wantKey;
                 if (LstLines.SelectedIndex != i)
-                    LstLines.SelectedIndex = i;
+                {
+                    _followUpdating = true;
+                    try { LstLines.SelectedIndex = i; }
+                    finally { _followUpdating = false; }
+                }
                 KeepRowInView(row, i);
                 return;
             }
@@ -813,7 +824,7 @@ public partial class TimingEditorWindow : Window
             if (item is LineRow row && row.Key == key)
             {
                 LstLines.SelectedItem = row;
-                LstLines.ScrollIntoView(row);
+                KeepRowInView(row, LstLines.SelectedIndex);
                 FillEditBox();
                 return;
             }
