@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
 using DesktopLyric.Services;
 using DesktopLyric.Views;
 
@@ -41,7 +43,12 @@ public partial class App : Application
         catch { }
         FontLoader.Load();
         ErrorLog.Attach(this);
+        // Layered AllowsTransparency windows + GPU geometry/effects have been
+        // killing the process with no dump. Software render is slower to look at
+        // but the 100ms lyric clock does not depend on the GPU.
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         RunLog.Write("start " + (Environment.ProcessPath ?? ""));
+        RunLog.Write("sw-render");
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
             try { RunLog.Write("process-exit"); } catch { }

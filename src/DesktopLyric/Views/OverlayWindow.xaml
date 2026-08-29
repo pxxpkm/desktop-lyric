@@ -63,6 +63,11 @@
 
             <!-- lyrics fill leftover space; control bar stays below and is never covered -->
             <Grid x:Name="LyricsHost" Grid.Row="1" Margin="16,4,16,4" ClipToBounds="True">
+                <!-- Rasterize lyrics off the layered HWND. DropShadow used to do this
+                     (and also crash); BitmapCache isolates geometry without a blur. -->
+                <Grid.CacheMode>
+                    <BitmapCache RenderAtScale="1.25" EnableClearType="False" SnapsToDevicePixels="False"/>
+                </Grid.CacheMode>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto"/>

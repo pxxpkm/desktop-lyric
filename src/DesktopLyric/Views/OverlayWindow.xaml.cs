@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using DesktopLyric.Services;
@@ -30,6 +31,18 @@ public partial class OverlayWindow : Window
         ApplyTopmost();
         ApplyFont();
         _offsetHold = new HoldRepeat(delta => OffsetNudged?.Invoke(delta));
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        try
+        {
+            if (PresentationSource.FromVisual(this) is HwndSource src && src.CompositionTarget != null)
+                src.CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
+            RunLog.Write("overlay-sw-render");
+        }
+        catch (Exception ex) { RunLog.Write("overlay-sw-ex " + ex.GetType().Name); }
     }
 
     private void ApplyFont()

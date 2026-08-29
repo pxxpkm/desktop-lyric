@@ -130,8 +130,13 @@ public class LyricLineView : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
+        var trace = System.Threading.Interlocked.Increment(ref _renderTraces) <= 2;
+        if (trace)
+            RunLog.Write("lyric-render-begin w=" + ActualWidth.ToString("0")
+                + " h=" + ActualHeight.ToString("0") + " cur=" + IsCurrent);
         try
         {
+            if (ActualWidth < 2 || ActualHeight < 2) return;
             RenderCore(dc);
         }
         catch
@@ -144,7 +149,10 @@ public class LyricLineView : FrameworkElement
             }
             catch { }
         }
+        if (trace) RunLog.Write("lyric-render-end");
     }
+
+    private static int _renderTraces;
 
     private void RenderCore(DrawingContext dc)
     {
