@@ -66,7 +66,10 @@ public partial class MainWindow : Window
     private string? _paintNext;
     private List<KaraokeWordTiming>? _paintWords;
     private double _paintElapsed = double.NaN;
+    private int _paintPhase = int.MinValue;
     private bool? _lastPlaying;
+    private long _lastTlMs;
+    private volatile bool _forceTimeline;
     private readonly Dictionary<string, string> _s2t = new();
     private GlobalSystemMediaTransportControlsSessionPlaybackInfo? _heldPlayback;
     private GlobalSystemMediaTransportControlsSessionTimelineProperties? _heldTimeline;
@@ -337,6 +340,7 @@ public partial class MainWindow : Window
     {
         try { WinRtLifetime.Suppress(args); }
         catch { }
+        _forceTimeline = true;
         QueueRefreshClock();
     }
 
@@ -410,13 +414,20 @@ public partial class MainWindow : Window
         try
         {
             info = _session.GetPlaybackInfo();
-            tl = _session.GetTimelineProperties();
             var playing = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             var rate = info.PlaybackRate is > 0 and var r ? r : 1.0;
-            _clock.Apply(tl.Position, playing, rate);
+            var now = Environment.TickCount64;
+            var needTl = _forceTimeline || !playing || !_clock.IsPlaying || now - _lastTlMs >= 400;
+            _forceTimeline = false;
+            if (needTl)
+            {
+                tl = _session.GetTimelineProperties();
+                _lastTlMs = now;
+                _clock.Apply(tl.Position, playing, rate);
+                var dur = tl.EndTime - tl.StartTime;
+                _trackDuration = dur >= TimeSpan.FromSeconds(12) ? dur : null;
+            }
             _clockFails = 0;
-            var dur = tl.EndTime - tl.StartTime;
-            _trackDuration = dur >= TimeSpan.FromSeconds(12) ? dur : null;
             if (_lastPlaying != playing)
             {
                 _lastPlaying = playing;
@@ -444,7 +455,8 @@ public partial class MainWindow : Window
         finally
         {
             HoldSmtc(ref _heldPlayback, info);
-            HoldSmtc(ref _heldTimeline, tl);
+            if (tl != null)
+                HoldSmtc(ref _heldTimeline, tl);
             GC.KeepAlive(_session);
         }
     }
@@ -588,8 +600,11 @@ public partial class MainWindow : Window
             if (elapsed < 0) elapsed = 0;
             if (idx == _paintIdx && sig == _paintSig)
             {
-                if (!_clock.IsPlaying || Math.Abs(elapsed - _paintElapsed) < 8)
+                if (!_clock.IsPlaying) return;
+                var phase = KaraokePhase(_paintWords, elapsed);
+                if (phase == _paintPhase && elapsed - _paintElapsed < 180)
                     return;
+                _paintPhase = phase;
                 _paintElapsed = elapsed;
                 SafeUpdateLyrics(_paintText,
                     _settings.HideTranslation ? null : _paintTrans,
@@ -610,6 +625,7 @@ public partial class MainWindow : Window
             _paintNext = string.IsNullOrEmpty(next) ? null : next;
             _paintWords = words;
             _paintElapsed = elapsed;
+            _paintPhase = KaraokePhase(words, elapsed);
 
             TxtCurrent.Text = text;
             TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
@@ -645,6 +661,7 @@ public partial class MainWindow : Window
         _paintIdx = int.MinValue;
         _paintSig = "";
         _paintElapsed = double.NaN;
+        _paintPhase = int.MinValue;
         ResetKaraokeCache();
     }
 
@@ -652,6 +669,21 @@ public partial class MainWindow : Window
     {
         var i = LyricsService.NextSungIndex(lines, afterIdx);
         return i >= 0 ? ToDisplay(lines[i].Text) : null;
+    }
+
+    private static int KaraokePhase(List<KaraokeWordTiming>? words, double elapsed)
+    {
+        if (words == null || words.Count == 0) return -1;
+        var n = Math.Min(words.Count, 80);
+        for (int i = 0; i < n; i++)
+        {
+            var w = words[i];
+            var start = w.StartMs;
+            var end = start + Math.Max(0, w.DurationMs);
+            if (elapsed < start) return i * 2;
+            if (elapsed < end) return i * 2 + 1;
+        }
+        return n * 2;
     }
 
     private TimeSpan LyricClockPos()
