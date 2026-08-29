@@ -32,7 +32,6 @@ public partial class TimingEditorWindow : Window
     private HoldRepeat? _stayHold;
     private LineRow? _dragRow;
     private Point _dragStart;
-    private bool _followUpdating;
     private long _lastFollowScrollMs;
 
     public TimingEditorWindow(
@@ -64,11 +63,7 @@ public partial class TimingEditorWindow : Window
         _stayHold = new HoldRepeat(delta => NudgeStay(delta >= 0
             ? LyricOffsetStore.HoldStepMs
             : -LyricOffsetStore.HoldStepMs));
-        LstLines.SelectionChanged += (_, _) =>
-        {
-            if (_followUpdating) return;
-            FillEditBox();
-        };
+        LstLines.SelectionChanged += (_, _) => FillEditBox();
         _ready = true;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _timer.Tick += (_, _) => RefreshLive();
@@ -245,36 +240,47 @@ public partial class TimingEditorWindow : Window
         }
         if (idx < 0) return;
         var wantKey = LyricsService.LineKey(lines[idx]);
-        if (wantKey == _followKey) return;
+        var itemIdx = -1;
         for (int i = 0; i < LstLines.Items.Count; i++)
         {
             if (LstLines.Items[i] is LineRow row && row.Key == wantKey)
             {
-                _followKey = wantKey;
-                // Do not set SelectedIndex: virtualized ListBox scrolls internally
-                // (same native crash as ScrollIntoView).
-                KeepRowInView(i);
-                return;
+                itemIdx = i;
+                break;
             }
         }
+        if (itemIdx < 0) return;
+        _followKey = wantKey;
+        KeepRowInView(itemIdx);
     }
 
     /// <summary>
-    /// Approximate offset only. No SelectedIndex, ScrollIntoView, or
-    /// TransformToAncestor — those native-crash this window while playing.
+    /// Logical-unit scroll (CanContentScroll). No SelectedIndex / ScrollIntoView /
+    /// TransformToAncestor — those native-crash while playing.
     /// </summary>
     private void KeepRowInView(int index)
     {
         try
         {
             if (LiveLocked || ChkFollow?.IsChecked == false) return;
-            var now = Environment.TickCount64;
-            if (now - _lastFollowScrollMs < 1200) return;
             var sv = FindScrollViewer(LstLines);
-            if (sv == null || LstLines.Items.Count == 0 || sv.ExtentHeight < 1) return;
-            var avg = sv.ExtentHeight / LstLines.Items.Count;
-            var dest = Math.Max(0, avg * index - sv.ViewportHeight * 0.35);
-            if (Math.Abs(dest - sv.VerticalOffset) < Math.Max(28, avg)) return;
+            if (sv == null || LstLines.Items.Count == 0) return;
+            double dest;
+            double slack;
+            if (sv.CanContentScroll)
+            {
+                dest = Math.Max(0, index - sv.ViewportHeight * 0.35);
+                slack = 0.8;
+            }
+            else
+            {
+                var avg = sv.ExtentHeight / Math.Max(1, LstLines.Items.Count);
+                dest = Math.Max(0, avg * index - sv.ViewportHeight * 0.35);
+                slack = Math.Max(12, avg * 0.4);
+            }
+            if (Math.Abs(dest - sv.VerticalOffset) < slack) return;
+            var now = Environment.TickCount64;
+            if (now - _lastFollowScrollMs < 350) return;
             _lastFollowScrollMs = now;
             sv.ScrollToVerticalOffset(dest);
             RunLog.Trace("follow-scroll i=" + index);
