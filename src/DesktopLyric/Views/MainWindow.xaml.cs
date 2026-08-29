@@ -923,12 +923,27 @@ public partial class MainWindow : Window
     private async Task PickSongAsync(Window? owner)
     {
         var win = new PickSongWindow(_lyrics, _lastTitle, _lastArtist, GetTrackDuration());
-        if (owner is { IsVisible: true })
+        // Do not Owner a layered overlay/fullscreen — nested pump + DWM crashes.
+        if (owner is MainWindow { IsVisible: true })
             win.Owner = owner;
-        else if (_overlay is { IsVisible: true })
-            win.Owner = _overlay;
-        win.Topmost = _overlay is { IsVisible: true } || _fullscreen is { IsVisible: true };
-        if (win.ShowDialog() != true || win.Chosen == null) return;
+        else if (IsVisible)
+            win.Owner = this;
+        win.Topmost = true;
+        var syncOn = _syncTimer.IsEnabled;
+        _syncTimer.Stop();
+        bool ok;
+        try
+        {
+            RunLog.Write("pick-open");
+            ok = win.ShowDialog() == true && win.Chosen != null;
+            RunLog.Write("pick-close ok=" + ok);
+        }
+        finally
+        {
+            if (syncOn && _clock.IsPlaying && !_forceClose)
+                _syncTimer.Start();
+        }
+        if (!ok) return;
         TxtCurrent.Text = "loading...";
         if (win.Remember)
         {

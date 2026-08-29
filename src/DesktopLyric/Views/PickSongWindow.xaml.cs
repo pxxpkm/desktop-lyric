@@ -17,7 +17,7 @@ public partial class PickSongWindow : Window
     public PickSongWindow(LyricsService lyrics, string title, string artist, TimeSpan? trackDuration = null)
     {
         InitializeComponent();
-        ShellWindow.NeverInTaskbar(this);
+        ShowInTaskbar = false;
         _lyrics = lyrics;
         _trackDuration = trackDuration;
         TxtTitle.Text = LyricChoiceStore.SearchTitle(title);
@@ -27,11 +27,15 @@ public partial class PickSongWindow : Window
 
     private void Window_Drag(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left)
-            DragMove();
+        if (e.ChangedButton != MouseButton.Left) return;
+        try { DragMove(); } catch { }
     }
 
-    private void Close_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void Close_Click(object sender, RoutedEventArgs e)
+    {
+        try { DialogResult = false; }
+        catch { Close(); }
+    }
 
     private async void Search_Click(object sender, RoutedEventArgs e) => await RunSearch();
 
@@ -52,10 +56,12 @@ public partial class PickSongWindow : Window
 
         TxtStatus.Text = "搜尋中...";
         LstResults.ItemsSource = null;
+        RunLog.Write("pick-search " + title);
         try
         {
             var list = await _lyrics.SearchCandidatesAsync(title, artist, _trackDuration);
             LstResults.ItemsSource = list;
+            RunLog.Write("pick-results n=" + list.Count);
             if (list.Count > 0)
             {
                 LstResults.SelectedIndex = 0;
@@ -63,8 +69,9 @@ public partial class PickSongWindow : Window
             }
             else TxtStatus.Text = "搵唔到，試下改歌名／歌手";
         }
-        catch
+        catch (Exception ex)
         {
+            RunLog.Write("pick-search-ex " + ex.GetType().Name + " " + ex.Message);
             TxtStatus.Text = "搜尋失敗";
         }
     }

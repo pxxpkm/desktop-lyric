@@ -68,6 +68,9 @@
                      Background="#08FFFFFF" BorderBrush="#18FFFFFF"
                      Foreground="#F0F0F5" FontSize="12"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     ScrollViewer.CanContentScroll="True"
                      MouseDoubleClick="Use_Click">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
