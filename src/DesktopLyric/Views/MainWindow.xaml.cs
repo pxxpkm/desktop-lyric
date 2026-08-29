@@ -309,8 +309,10 @@ public partial class MainWindow : Window
                             TxtCurrent.Text = "no lyrics found";
                         }
                     }
-                    if (needArt)
+                    if (needArt && WindowGuard.CanTouch(_fullscreen))
                         ScheduleAlbumArt();
+                    else if (needArt)
+                        RunLog.Write("art-hold");
                 }
                 else
                     RefreshClock();
@@ -1189,6 +1191,8 @@ public partial class MainWindow : Window
         _fullscreen.PickSongRequested += () => _ = PickSongAsync(_fullscreen);
         _fullscreen.SetTrackInfo(ToDisplay(_lastTitle), ToDisplay(TxtArtist.Text));
         _fullscreen.SetAlbumArt(_albumArt);
+        if (_albumArt == null && !_artMissing)
+            ScheduleAlbumArt();
         _fullscreen.Closed += (_, _) =>
         {
             _fullscreen = null;

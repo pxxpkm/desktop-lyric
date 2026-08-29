@@ -278,6 +278,8 @@ public partial class TimingEditorWindow : Window
                 dest = Math.Max(0, avg * index - sv.ViewportHeight * 0.35);
                 slack = Math.Max(12, avg * 0.4);
             }
+            var maxOff = Math.Max(0, sv.ExtentHeight - sv.ViewportHeight);
+            if (dest > maxOff) dest = maxOff;
             if (Math.Abs(dest - sv.VerticalOffset) < slack) return;
             var now = Environment.TickCount64;
             if (now - _lastFollowScrollMs < 350) return;
