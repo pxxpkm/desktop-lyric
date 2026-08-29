@@ -41,7 +41,8 @@
                     <Grid>
                         <TextBlock Text="♪" FontSize="72" Foreground="#30FFFFFF"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <Image x:Name="CoverArt" Stretch="UniformToFill"/>
+                        <Image x:Name="CoverArt" Stretch="Uniform"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Grid>
                 </Border>
                 <TextBlock x:Name="FsTitle" Text="" FontSize="26" FontWeight="SemiBold"

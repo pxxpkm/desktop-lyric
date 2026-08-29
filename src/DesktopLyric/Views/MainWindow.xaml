@@ -75,7 +75,8 @@
                     </Grid.ColumnDefinitions>
                     <Border Grid.Column="0" CornerRadius="8" Width="44" Height="44"
                             Background="#15FFFFFF" ClipToBounds="True">
-                        <Image x:Name="AlbumArt" Stretch="UniformToFill"/>
+                        <Image x:Name="AlbumArt" Stretch="Uniform"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,0,0">
                         <TextBlock x:Name="TxtTitle" Text="waiting..."
