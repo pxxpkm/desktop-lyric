@@ -145,14 +145,11 @@ public partial class TimingEditorWindow : Window
             var lyric = _lyricPos();
             TxtClock.Text = $"播放 {Fmt(play)}   →   歌詞 {Fmt(lyric)}";
             if (LiveLocked) return;
-            RebuildLines();
+            if (ChkFollow?.IsChecked != false)
+                HighlightCurrent(lyric);
             var t = _getTiming();
             if (Math.Abs(SldOffset.Value - t.OffsetMs) > 1)
                 LoadFromTiming(t);
-            if (ChkFollow?.IsChecked != false)
-                HighlightCurrent(lyric);
-            RefreshLineLabel();
-            FillEditBox();
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
     }
@@ -239,10 +236,7 @@ public partial class TimingEditorWindow : Window
             if (LstLines.Items[i] is LineRow row && row.Key == wantKey)
             {
                 if (LstLines.SelectedIndex != i)
-                {
                     LstLines.SelectedIndex = i;
-                    LstLines.ScrollIntoView(row);
-                }
                 return;
             }
         }
