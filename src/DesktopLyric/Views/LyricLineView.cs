@@ -192,7 +192,7 @@ public class LyricLineView : FrameworkElement
             return _karaokeLayout;
 
         var unsung = Brushes.White;
-        var n = Math.Min(words.Count, 80);
+        var n = Math.Min(words.Count, KaraokeWordTiming.MaxOverlayWords);
         var pieces = new List<(string text, double w, int start, int dur)>(n);
         double Measure(string piece, double size)
         {

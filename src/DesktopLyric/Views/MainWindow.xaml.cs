@@ -693,6 +693,10 @@ public partial class MainWindow : Window
             if (idx == _paintIdx && sig == _paintSig)
             {
                 if (!_clock.IsPlaying) return;
+                // Hold-to-next / 14.5s gap must keep the text, not keep redrawing.
+                if (KaraokeWordTiming.OverlayFrozen(_paintWords, _paintElapsed)
+                    && KaraokeWordTiming.OverlayFrozen(_paintWords, elapsed))
+                    return;
                 var phase = KaraokePhase(_paintWords, elapsed);
                 if (phase == _paintPhase && elapsed - _paintElapsed < 180)
                     return;
@@ -766,7 +770,7 @@ public partial class MainWindow : Window
     private static int KaraokePhase(List<KaraokeWordTiming>? words, double elapsed)
     {
         if (words == null || words.Count == 0) return -1;
-        var n = Math.Min(words.Count, 80);
+        var n = Math.Min(words.Count, KaraokeWordTiming.MaxOverlayWords);
         for (int i = 0; i < n; i++)
         {
             var w = words[i];

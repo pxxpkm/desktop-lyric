@@ -130,10 +130,14 @@ public partial class OverlayWindow : Window
             var needLayout = OvCurrent.Text != (current ?? "")
                 || OvTrans.Text != (translated ?? "")
                 || OvNext.Text != (next ?? "");
-            if (!needLayout
-                && ReferenceEquals(OvCurrent.Words, wordTimings)
-                && Math.Abs(OvCurrent.LineElapsedMs - lineElapsedMs) < 8)
-                return;
+            if (!needLayout && ReferenceEquals(OvCurrent.Words, wordTimings))
+            {
+                if (KaraokeWordTiming.OverlayFrozen(wordTimings, OvCurrent.LineElapsedMs)
+                    && KaraokeWordTiming.OverlayFrozen(wordTimings, lineElapsedMs))
+                    return;
+                if (Math.Abs(OvCurrent.LineElapsedMs - lineElapsedMs) < 8)
+                    return;
+            }
             OvCurrent.SettingsFont = custom;
             OvCurrent.Text = current ?? "";
             OvCurrent.Words = wordTimings;

@@ -1458,8 +1458,8 @@ public class LyricsService
         if (idx < 0 || idx >= lines.Count) return false;
         var line = lines[idx];
         if (string.IsNullOrWhiteSpace(line.Text)) return false;
-        if (IsAttachedTranslationLine(lines, idx)) return false;
         if (pos < TimeOf(line, shifts)) return false;
+        if (IsAttachedTranslationLine(lines, idx)) return false;
 
         var prev = PrevSungIndex(lines, idx);
         if (prev >= 0)

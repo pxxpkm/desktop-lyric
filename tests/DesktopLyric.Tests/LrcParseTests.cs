@@ -243,6 +243,18 @@ public class LrcParseTests
     }
 
     [Fact]
+    public void overlay_freezes_after_last_word_and_on_plain_lines()
+    {
+        Assert.True(KaraokeWordTiming.OverlayFrozen(null, 0));
+        Assert.True(KaraokeWordTiming.OverlayFrozen([], 9000));
+        var words = new List<KaraokeWordTiming> { new(0, 400, "a"), new(400, 500, "b") };
+        Assert.False(KaraokeWordTiming.OverlayFrozen(words, 100));
+        Assert.False(KaraokeWordTiming.OverlayFrozen(words, 899));
+        Assert.True(KaraokeWordTiming.OverlayFrozen(words, 900));
+        Assert.True(KaraokeWordTiming.OverlayFrozen(words, 14_500));
+    }
+
+    [Fact]
     public void apply_edits_replaces_hides_and_inserts()
     {
         var src = new List<LrcLine>
