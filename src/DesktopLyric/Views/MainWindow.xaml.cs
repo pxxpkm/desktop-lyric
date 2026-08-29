@@ -444,7 +444,15 @@ public partial class MainWindow : Window
             _artMissing = false;
             var artGen = ++_artGen;
             var stream = await thumb.OpenReadAsync();
-            using var ms = await CopyThumbnailAsync(stream);
+            using var ms = new MemoryStream();
+            try
+            {
+                // AsStreamForRead owns and Closes the WinRT stream. Do not Dispose it again.
+                using (var inp = stream.AsStreamForRead())
+                    await inp.CopyToAsync(ms);
+            }
+            finally { WinRtLifetime.Suppress(stream); }
+            ms.Position = 0;
             var bmp = new BitmapImage();
             bmp.BeginInit();
             bmp.CacheOption = BitmapCacheOption.OnLoad;
@@ -463,48 +471,6 @@ public partial class MainWindow : Window
         }
         catch { }
         finally { WinRtLifetime.Suppress(thumb); }
-    }
-
-    /// <summary>
-    /// Copies the WinRT thumbnail and closes it. DataReader uses the reported
-    /// Size so JPEG is not truncated (AsStreamForRead Length can be 0/short).
-    /// </summary>
-    private static async Task<MemoryStream> CopyThumbnailAsync(IRandomAccessStream stream)
-    {
-        var ms = new MemoryStream();
-        var transferred = false;
-        try
-        {
-            var size = stream.Size;
-            if (size > 0 && size <= 20_000_000)
-            {
-                var reader = new DataReader(stream.GetInputStreamAt(0));
-                try
-                {
-                    var n = await reader.LoadAsync((uint)size);
-                    if (n > 0)
-                    {
-                        var bytes = new byte[n];
-                        reader.ReadBytes(bytes);
-                        ms.Write(bytes, 0, bytes.Length);
-                    }
-                }
-                finally { reader.Dispose(); }
-            }
-            if (ms.Length == 0)
-            {
-                using var inp = stream.AsStreamForRead();
-                transferred = true;
-                await inp.CopyToAsync(ms);
-            }
-            ms.Position = 0;
-            return ms;
-        }
-        finally
-        {
-            if (!transferred)
-                WinRtLifetime.Release(stream);
-        }
     }
 
     private void SafeUpdateLyrics(string current, string? translated, string? next,
