@@ -20,9 +20,6 @@
         <Border.Background>
             <SolidColorBrush Color="#F20d0d18"/>
         </Border.Background>
-        <Border.Effect>
-            <DropShadowEffect Color="#000" BlurRadius="24" Opacity="0.45" ShadowDepth="4"/>
-        </Border.Effect>
 
         <Grid Margin="18,14,18,14">
             <Grid.RowDefinitions>

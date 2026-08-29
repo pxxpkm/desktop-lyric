@@ -45,7 +45,6 @@ public partial class TimingEditorWindow : Window
         Action<TrackTiming> apply)
     {
         InitializeComponent();
-        ShellWindow.NeverInTaskbar(this);
         _title = title;
         _artist = artist;
         _playPos = playPos;

@@ -24,14 +24,13 @@
         SizeChanged="OnWindowSizeChanged">
 
     <Grid>
-        <!-- bg -->
+        <!-- bg. No DropShadowEffect: layered window + Effect + 10Hz karaoke
+             has been taking down wpfgfx with no dump. -->
+        <Border CornerRadius="16" Margin="2" Background="#55000000" IsHitTestVisible="False"/>
         <Border x:Name="BgBorder" CornerRadius="14" Margin="6">
             <Border.Background>
                 <SolidColorBrush Color="#080810" Opacity="0.88"/>
             </Border.Background>
-            <Border.Effect>
-                <DropShadowEffect Color="#000" BlurRadius="24" Opacity="0.5" ShadowDepth="4"/>
-            </Border.Effect>
         </Border>
         <!-- subtle border -->
         <Border CornerRadius="14" Margin="6" BorderThickness="0.8" IsHitTestVisible="False">

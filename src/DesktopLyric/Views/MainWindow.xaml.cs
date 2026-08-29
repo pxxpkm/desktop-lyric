@@ -73,6 +73,10 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, string> _s2t = new();
     private GlobalSystemMediaTransportControlsSessionPlaybackInfo? _heldPlayback;
     private GlobalSystemMediaTransportControlsSessionTimelineProperties? _heldTimeline;
+    private System.Threading.Timer? _watchdog;
+    private DispatcherTimer? _artTimer;
+    private bool _loggedFirstPaint;
+    private bool _artBusy;
 
     public MainWindow()
     {
@@ -119,6 +123,21 @@ public partial class MainWindow : Window
             catch { }
         };
         hb.Start();
+        // Independent of the UI thread. If this continues and hb stops, the dispatcher is stuck.
+        _watchdog = new System.Threading.Timer(OnWatchdog, null, 2500, 5000);
+    }
+
+    private void OnWatchdog(object? _)
+    {
+        if (_forceClose) return;
+        try
+        {
+            using var p = System.Diagnostics.Process.GetCurrentProcess();
+            RunLog.Write("wd ws=" + (p.WorkingSet64 / 1_048_576) + "MB"
+                + " play=" + _clock.IsPlaying
+                + " pos=" + (int)_clock.Position.TotalSeconds);
+        }
+        catch { }
     }
 
     private void WireTray()
@@ -149,6 +168,8 @@ public partial class MainWindow : Window
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         RunLog.Write("loaded visible=" + IsVisible);
+        ShowOverlay();
+        RunLog.Write("overlay-shown visible=" + (_overlay?.IsVisible == true));
         try
         {
             _mgr = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
@@ -159,18 +180,15 @@ public partial class MainWindow : Window
                 return;
             }
             BindSession(_mgr.GetCurrentSession());
-            ApplySessionUi();
             _mgr.CurrentSessionChanged += OnCurrentSessionChanged;
             RunLog.Write("smtc-ok session=" + (_session != null));
+            ApplySessionUi();
         }
         catch (Exception ex)
         {
             RunLog.Write("smtc-error " + ex.GetType().Name);
             TxtStatus.Text = "smtc error: " + ex.Message;
         }
-
-        ShowOverlay();
-        RunLog.Write("overlay-shown visible=" + (_overlay?.IsVisible == true));
     }
 
     private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, object args)
@@ -239,18 +257,9 @@ public partial class MainWindow : Window
                     TxtArtist.Text = ToDisplay(artist);
 
                     var artKey = title + "\n" + artist;
-                    if (artKey != _lastArtKey)
-                    {
-                        _artMissing = false;
-                        await LoadAlbumArt(props);
-                        if (_forceClose) return;
-                        _lastArtKey = artKey;
-                    }
-                    else if (_albumArt == null && !_artMissing)
-                    {
-                        await LoadAlbumArt(props);
-                        if (_forceClose) return;
-                    }
+                    var needArt = artKey != _lastArtKey || (_albumArt == null && !_artMissing);
+                    if (artKey != _lastArtKey) _artMissing = false;
+                    if (needArt) _lastArtKey = artKey;
                     _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
                     _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
 
@@ -258,7 +267,11 @@ public partial class MainWindow : Window
                     var artistFilled = !titleChanged
                         && string.IsNullOrEmpty(_lastArtist)
                         && !string.IsNullOrEmpty(artist);
-                    if (titleChanged) _trackDuration = null;
+                    if (titleChanged)
+                    {
+                        _trackDuration = null;
+                        _loggedFirstPaint = false;
+                    }
                     RefreshClock();
                     if (titleChanged || artistFilled)
                     {
@@ -275,9 +288,15 @@ public partial class MainWindow : Window
                         }
 
                         var requestedTitle = title;
+                        RunLog.Write("search-begin");
                         var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
                         if (_forceClose || _lastTitle != requestedTitle) return;
-                        if (result == null) return; // cancelled (user picked another candidate, or a newer search)
+                        if (result == null)
+                        {
+                            RunLog.Write("search-cancel");
+                            return;
+                        }
+                        RunLog.Write("search-done n=" + result.Count);
                         if (result.Count > 0)
                         {
                             SetLines(result);
@@ -289,6 +308,8 @@ public partial class MainWindow : Window
                             TxtCurrent.Text = "no lyrics found";
                         }
                     }
+                    if (needArt)
+                        ScheduleAlbumArt();
                 }
                 else
                     RefreshClock();
@@ -478,6 +499,50 @@ public partial class MainWindow : Window
         _trackDuration = null;
     }
 
+    private void ScheduleAlbumArt()
+    {
+        _artTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _artTimer.Tick -= OnArtTimer;
+        _artTimer.Tick += OnArtTimer;
+        _artTimer.Stop();
+        _artTimer.Start();
+    }
+
+    private async void OnArtTimer(object? sender, EventArgs e)
+    {
+        _artTimer?.Stop();
+        if (_forceClose || _session == null) return;
+        if (_artBusy)
+        {
+            _artTimer?.Start();
+            return;
+        }
+        _artBusy = true;
+        RunLog.Write("art-begin");
+        GlobalSystemMediaTransportControlsSessionMediaProperties? props = null;
+        try
+        {
+            props = await _session.TryGetMediaPropertiesAsync();
+            if (_forceClose || props == null)
+            {
+                RunLog.Write("art-skip");
+                return;
+            }
+            await LoadAlbumArt(props);
+            RunLog.Write("art-done");
+        }
+        catch (Exception ex)
+        {
+            _artMissing = true;
+            RunLog.Write("art-ex " + ex.GetType().Name);
+        }
+        finally
+        {
+            _artBusy = false;
+            WinRtLifetime.Suppress(props);
+        }
+    }
+
     private async Task LoadAlbumArt(GlobalSystemMediaTransportControlsSessionMediaProperties props)
     {
         IRandomAccessStreamReference? thumb = null;
@@ -490,10 +555,12 @@ public partial class MainWindow : Window
                 _artMissing = true;
                 AlbumArt.Source = null;
                 _fullscreen?.SetAlbumArt(null);
+                RunLog.Write("art-none");
                 return;
             }
             _artMissing = false;
             var artGen = ++_artGen;
+            RunLog.Write("art-open");
             var stream = await thumb.OpenReadAsync();
             using var ms = new MemoryStream();
             try
@@ -503,24 +570,27 @@ public partial class MainWindow : Window
                     await inp.CopyToAsync(ms);
             }
             finally { WinRtLifetime.Suppress(stream); }
+            RunLog.Write("art-copy n=" + ms.Length);
             ms.Position = 0;
             var bmp = new BitmapImage();
             bmp.BeginInit();
             bmp.CacheOption = BitmapCacheOption.OnLoad;
             bmp.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            bmp.DecodePixelWidth = 512;
             bmp.StreamSource = ms;
             bmp.EndInit();
             bmp.Freeze();
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                if (_forceClose || !IsLoaded || artGen != _artGen) return;
-                _albumArt = bmp;
-                AlbumArt.Source = bmp;
-                if (WindowGuard.CanTouch(_fullscreen))
-                    _fullscreen!.SetAlbumArt(bmp);
-            });
+            if (_forceClose || !IsLoaded || artGen != _artGen) return;
+            _albumArt = bmp;
+            AlbumArt.Source = bmp;
+            if (WindowGuard.CanTouch(_fullscreen))
+                _fullscreen!.SetAlbumArt(bmp);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _artMissing = true;
+            RunLog.Write("art-load-ex " + ex.GetType().Name);
+        }
         finally { WinRtLifetime.Suppress(thumb); }
     }
 
@@ -529,6 +599,12 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (!_loggedFirstPaint && !string.IsNullOrEmpty(current))
+            {
+                _loggedFirstPaint = true;
+                RunLog.Write("paint-first n=" + current.Length
+                    + " words=" + (words?.Count ?? 0));
+            }
             if (WindowGuard.CanTouch(_overlay))
                 _overlay!.UpdateLyrics(current, translated, next, words, elapsed);
             if (WindowGuard.CanTouch(_fullscreen))
@@ -860,6 +936,9 @@ public partial class MainWindow : Window
         if (_forceClose) return;
         RunLog.Write("quit " + reason);
         _forceClose = true;
+        try { _watchdog?.Dispose(); } catch { }
+        _watchdog = null;
+        _artTimer?.Stop();
         StopSmtc();
         _offsetHold?.Dispose();
         _offsetHold = null;
