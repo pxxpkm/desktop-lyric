@@ -251,7 +251,14 @@ public partial class TimingEditorWindow : Window
         }
         if (itemIdx < 0) return;
         _followKey = wantKey;
-        KeepRowInView(itemIdx);
+        if (TxtFollow != null && LstLines.Items[itemIdx] is LineRow shown)
+        {
+            var n = LstLines.Items.Count;
+            var label = $"跟 {itemIdx + 1}/{n}  {shown.Display}";
+            if (TxtFollow.Text != label) TxtFollow.Text = label;
+        }
+        // Do not ScrollToVerticalOffset / SelectedIndex — ListBox scroll
+        // native-crashes while the overlay is painting.
     }
 
     /// <summary>

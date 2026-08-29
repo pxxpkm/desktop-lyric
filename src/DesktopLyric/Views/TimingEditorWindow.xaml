@@ -45,6 +45,8 @@
             <StackPanel Grid.Row="2" Margin="0,0,0,10">
                 <TextBlock x:Name="TxtTrack" Foreground="#F0F0F5" FontSize="13" TextTrimming="CharacterEllipsis"/>
                 <TextBlock x:Name="TxtClock" Foreground="#90A8B8" FontSize="12" Margin="0,4,0,0"/>
+                <TextBlock x:Name="TxtFollow" Foreground="#00d4ff" FontSize="12" Margin="0,3,0,0"
+                           TextTrimming="CharacterEllipsis"/>
             </StackPanel>
 
             <ListBox x:Name="LstLines" Grid.Row="3"
