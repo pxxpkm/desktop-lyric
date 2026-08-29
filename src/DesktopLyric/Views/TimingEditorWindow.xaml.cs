@@ -26,6 +26,7 @@ public partial class TimingEditorWindow : Window
     private bool _dragging;
     private bool _syncing;
     private string _listSig = "";
+    private string? _followKey;
     private HoldRepeat? _lineHold;
     private HoldRepeat? _rateHold;
     private HoldRepeat? _stayHold;
@@ -64,7 +65,7 @@ public partial class TimingEditorWindow : Window
             : -LyricOffsetStore.HoldStepMs));
         LstLines.SelectionChanged += (_, _) => FillEditBox();
         _ready = true;
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _timer.Tick += (_, _) => RefreshLive();
         _timer.Start();
         RefreshLive();
@@ -102,6 +103,7 @@ public partial class TimingEditorWindow : Window
         }
         if (LiveLocked) return;
         _listSig = sig;
+        _followKey = null;
         var keepKey = (LstLines.SelectedItem as LineRow)?.Key;
         var rows = new List<LineRow>();
         LineRow? reselect = null;
@@ -231,15 +233,59 @@ public partial class TimingEditorWindow : Window
         }
         if (idx < 0) return;
         var wantKey = LyricsService.LineKey(lines[idx]);
+        if (wantKey == _followKey) return;
         for (int i = 0; i < LstLines.Items.Count; i++)
         {
             if (LstLines.Items[i] is LineRow row && row.Key == wantKey)
             {
+                _followKey = wantKey;
                 if (LstLines.SelectedIndex != i)
                     LstLines.SelectedIndex = i;
+                KeepRowInView(row, i);
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Scroll only when the current line is off-screen. Avoid ScrollIntoView on
+    /// a layered window (that path native-crashed while the editor was open).
+    /// </summary>
+    private void KeepRowInView(LineRow row, int index)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (LiveLocked || ChkFollow?.IsChecked == false) return;
+            var sv = FindScrollViewer(LstLines);
+            if (sv == null) return;
+            if (LstLines.ItemContainerGenerator.ContainerFromItem(row) is FrameworkElement el)
+            {
+                Point at;
+                try { at = el.TransformToAncestor(sv).Transform(new Point(0, 0)); }
+                catch { return; }
+                var bottom = at.Y + el.ActualHeight;
+                if (at.Y >= 12 && bottom <= sv.ViewportHeight - 12) return;
+                var dest = sv.VerticalOffset + at.Y - sv.ViewportHeight * 0.35;
+                sv.ScrollToVerticalOffset(Math.Max(0, dest));
+                return;
+            }
+            if (LstLines.Items.Count == 0 || sv.ExtentHeight < 1) return;
+            var avg = sv.ExtentHeight / LstLines.Items.Count;
+            sv.ScrollToVerticalOffset(Math.Max(0, avg * index - sv.ViewportHeight * 0.35));
+        }, DispatcherPriority.Background);
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        var n = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer sv) return sv;
+            var nested = FindScrollViewer(child);
+            if (nested != null) return nested;
+        }
+        return null;
     }
 
     private static string Fmt(TimeSpan t)
