@@ -31,11 +31,7 @@ public partial class PickSongWindow : Window
         try { DragMove(); } catch { }
     }
 
-    private void Close_Click(object sender, RoutedEventArgs e)
-    {
-        try { DialogResult = false; }
-        catch { Close(); }
-    }
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
     private async void Search_Click(object sender, RoutedEventArgs e) => await RunSearch();
 
@@ -81,7 +77,7 @@ public partial class PickSongWindow : Window
         if (LstResults.SelectedItem is LyricCandidate c)
         {
             Chosen = c;
-            DialogResult = true;
+            Close();
         }
     }
 }

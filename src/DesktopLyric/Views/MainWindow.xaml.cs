@@ -920,55 +920,73 @@ public partial class MainWindow : Window
     private async void PickSong_Click(object sender, RoutedEventArgs e)
         => await PickSongAsync(this);
 
+    private bool _picking;
+
     private async Task PickSongAsync(Window? owner)
     {
+        if (_picking) return;
+        _picking = true;
         var win = new PickSongWindow(_lyrics, _lastTitle, _lastArtist, GetTrackDuration());
-        // Do not Owner a layered overlay/fullscreen — nested pump + DWM crashes.
-        if (owner is MainWindow { IsVisible: true })
-            win.Owner = owner;
-        else if (IsVisible)
+        if (IsVisible)
             win.Owner = this;
         win.Topmost = true;
         var syncOn = _syncTimer.IsEnabled;
         _syncTimer.Stop();
-        bool ok;
+        _pollTimer.Stop();
+        LyricCandidate? chosen = null;
+        var remember = false;
+        var searchTitle = "";
+        var searchArtist = "";
         try
         {
             RunLog.Write("pick-open");
-            ok = win.ShowDialog() == true && win.Chosen != null;
-            RunLog.Write("pick-close ok=" + ok);
+            var closed = new TaskCompletionSource<bool>();
+            win.Closed += (_, _) => closed.TrySetResult(true);
+            win.Show();
+            await closed.Task;
+            chosen = win.Chosen;
+            remember = win.Remember;
+            searchTitle = win.SearchTitle;
+            searchArtist = win.SearchArtist;
+            RunLog.Write("pick-close ok=" + (chosen != null));
+        }
+        catch (Exception ex)
+        {
+            RunLog.Write("pick-ex " + ex.GetType().Name + " " + ex.Message);
+            ErrorLog.Write(ex);
         }
         finally
         {
-            if (syncOn && _clock.IsPlaying && !_forceClose)
-                _syncTimer.Start();
+            _picking = false;
+            if (!_forceClose)
+            {
+                _pollTimer.Start();
+                if (syncOn && _clock.IsPlaying)
+                    _syncTimer.Start();
+            }
         }
-        if (!ok) return;
+        if (chosen == null) return;
         TxtCurrent.Text = "loading...";
-        if (win.Remember)
+        if (remember)
         {
-            // Save before fetch so a cancelled download still remembers the pick.
-            LyricChoiceStore.Set(_lastTitle, _lastArtist, win.Chosen.Key);
-            LyricChoiceStore.Set(win.SearchTitle, win.SearchArtist, win.Chosen.Key);
-            LyricChoiceStore.Set(win.Chosen.Title, win.Chosen.Artist, win.Chosen.Key);
+            LyricChoiceStore.Set(_lastTitle, _lastArtist, chosen.Key);
+            LyricChoiceStore.Set(searchTitle, searchArtist, chosen.Key);
+            LyricChoiceStore.Set(chosen.Title, chosen.Artist, chosen.Key);
         }
-        var lines = await _lyrics.FetchAsync(win.Chosen);
+        var lines = await _lyrics.FetchAsync(chosen);
         if (lines == null || lines.Count == 0)
-        {
-            // Fetch raced with auto-search; the pin is saved, so retry via that.
             lines = await _lyrics.SearchAsync(_lastTitle, _lastArtist, GetTrackDuration());
-        }
         if (lines == null) return;
         if (lines.Count > 0)
         {
             SetLines(lines);
             TxtCurrent.Text = "♪";
-            TxtStatus.Text = $"歌詞：{win.Chosen.Title} · {win.Chosen.Source}";
+            TxtStatus.Text = $"歌詞：{chosen.Title} · {chosen.Source}";
         }
         else
         {
             TxtCurrent.Text = "no lyrics found";
-            TxtStatus.Text = win.Remember ? "已記住，但呢首暫時撈唔到歌詞" : "呢首冇歌詞";
+            TxtStatus.Text = remember ? "已記住，但呢首暫時撈唔到歌詞" : "呢首冇歌詞";
         }
     }
 
