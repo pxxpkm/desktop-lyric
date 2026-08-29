@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using DesktopLyric.Services;
+using DesktopLyric.Views;
 
 namespace DesktopLyric;
 
@@ -44,6 +45,7 @@ public partial class App : Application
         Tray = new TrayIconService();
         Tray.Start();
         base.OnStartup(e);
+        new MainWindow().Show();
     }
 
     protected override void OnExit(ExitEventArgs e)
