@@ -369,6 +369,7 @@ public partial class MainWindow : Window
     {
         try { WinRtLifetime.Suppress(args); }
         catch { }
+        if (!_clock.IsPlaying) return;
         QueueRefreshClock();
     }
 
@@ -438,7 +439,11 @@ public partial class MainWindow : Window
             var playing = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             var rate = info.PlaybackRate is > 0 and var r ? r : 1.0;
             var now = Environment.TickCount64;
-            var needTl = _forceTimeline || !playing || !_clock.IsPlaying || now - _lastTlMs >= 400;
+            var transition = _lastPlaying != playing;
+            // Paused used to force GetTimeline every call (poll + events), creating
+            // SMTC wrappers that later finalize on an MTA thread and AV.
+            var needTl = _forceTimeline || transition
+                || (playing && (!_clock.IsPlaying || now - _lastTlMs >= 400));
             _forceTimeline = false;
             if (needTl)
             {
@@ -457,10 +462,12 @@ public partial class MainWindow : Window
             if (playing)
             {
                 if (!_syncTimer.IsEnabled) _syncTimer.Start();
+                SetPollInterval(playing: true);
             }
             else
             {
                 if (_syncTimer.IsEnabled) _syncTimer.Stop();
+                SetPollInterval(playing: false);
                 SyncLyrics();
             }
         }
@@ -488,6 +495,15 @@ public partial class MainWindow : Window
         slot = next;
         if (!ReferenceEquals(prev, next))
             WinRtLifetime.Suppress(prev);
+    }
+
+    private void SetPollInterval(bool playing)
+    {
+        var want = playing ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(15);
+        if (_pollTimer.Interval == want) return;
+        _pollTimer.Interval = want;
+        if (!_pollTimer.IsEnabled) _pollTimer.Start();
+        RunLog.Write(playing ? "poll-2s" : "poll-15s");
     }
 
     private void DropHeldSmtc()

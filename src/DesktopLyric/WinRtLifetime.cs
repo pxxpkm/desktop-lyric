@@ -45,10 +45,21 @@ internal static class WinRtLifetime
     public static void Suppress(object? obj)
     {
         if (obj == null) return;
+        try { GC.SuppressFinalize(obj); }
+        catch { }
         try
         {
-            if (obj is IWinRTObject { HasUnwrappableNativeObject: true } w)
-                GC.SuppressFinalize(w.NativeObject);
+            if (obj is IWinRTObject w)
+            {
+                try { GC.SuppressFinalize(w); } catch { }
+                try
+                {
+                    var native = w.NativeObject;
+                    if (native != null)
+                        GC.SuppressFinalize(native);
+                }
+                catch { }
+            }
         }
         catch { }
     }
