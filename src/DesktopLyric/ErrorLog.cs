@@ -16,15 +16,24 @@ internal static class ErrorLog
         app.DispatcherUnhandledException += (_, e) =>
         {
             Write(e.Exception);
+            RunLog.Write("ui-exception " + e.Exception.GetType().Name);
             e.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
-            if (e.ExceptionObject is Exception ex) Write(ex);
+            if (e.ExceptionObject is Exception ex)
+            {
+                Write(ex);
+                RunLog.Write("unhandled " + ex.GetType().Name
+                    + (e.IsTerminating ? " terminating" : ""));
+            }
+            else
+                RunLog.Write("unhandled " + e.ExceptionObject);
         };
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             Write(e.Exception);
+            RunLog.Write("unobserved-task " + e.Exception.GetType().Name);
             e.SetObserved();
         };
     }

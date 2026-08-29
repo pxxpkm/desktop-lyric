@@ -102,7 +102,7 @@ public partial class MainWindow : Window
         tray.ShowMainRequested += RestoreFromOverlay;
         tray.ShowOverlayRequested += ShowOverlay;
         tray.SettingsRequested += OpenSettings;
-        tray.ExitRequested += QuitApp;
+        tray.ExitRequested += () => QuitApp("tray");
     }
 
     private void ApplySettings()
@@ -768,6 +768,7 @@ public partial class MainWindow : Window
             ShowOverlay();
         Hide();
         ShellWindow.Unpin(this);
+        RunLog.Write("hide-to-overlay");
     }
 
     public void RestoreFromOverlay()
@@ -778,9 +779,10 @@ public partial class MainWindow : Window
         Activate();
     }
 
-    public void QuitApp()
+    public void QuitApp(string reason = "quit")
     {
         if (_forceClose) return;
+        RunLog.Write("quit " + reason);
         _forceClose = true;
         StopSmtc();
         _offsetHold?.Dispose();

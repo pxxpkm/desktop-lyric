@@ -289,7 +289,7 @@ public partial class OverlayWindow : Window
         {
             // Main ✕ only hides. Overlay close with main hidden is the real exit.
             if (Application.Current is { MainWindow: MainWindow { IsVisible: false } main })
-                main.QuitApp();
+                main.QuitApp("overlay-close");
         }
         catch { }
     }

@@ -30,6 +30,7 @@ public partial class App : Application
             }
             if (!_ownsMutex)
             {
+                RunLog.Write("already-running");
                 MessageBox.Show("already running", "Desktop Lyric");
                 Shutdown();
                 return;
@@ -39,6 +40,7 @@ public partial class App : Application
         catch { }
         FontLoader.Load();
         ErrorLog.Attach(this);
+        RunLog.Write("start " + (Environment.ProcessPath ?? ""));
         Tray = new TrayIconService();
         Tray.Start();
         base.OnStartup(e);
@@ -46,6 +48,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        RunLog.Write("exit code=" + e.ApplicationExitCode);
         try { Tray?.Dispose(); } catch { }
         Tray = null;
         if (_ownsMutex)
