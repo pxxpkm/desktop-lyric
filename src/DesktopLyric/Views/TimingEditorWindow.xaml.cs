@@ -33,6 +33,7 @@ public partial class TimingEditorWindow : Window
     private LineRow? _dragRow;
     private Point _dragStart;
     private bool _followUpdating;
+    private long _lastFollowScrollMs;
 
     public TimingEditorWindow(
         Func<string> title,
@@ -250,49 +251,35 @@ public partial class TimingEditorWindow : Window
             if (LstLines.Items[i] is LineRow row && row.Key == wantKey)
             {
                 _followKey = wantKey;
-                if (LstLines.SelectedIndex != i)
-                {
-                    _followUpdating = true;
-                    try { LstLines.SelectedIndex = i; }
-                    finally { _followUpdating = false; }
-                }
-                KeepRowInView(row, i);
+                // Do not set SelectedIndex: virtualized ListBox scrolls internally
+                // (same native crash as ScrollIntoView).
+                KeepRowInView(i);
                 return;
             }
         }
     }
 
     /// <summary>
-    /// Scroll only when the current line is off-screen. Avoid ScrollIntoView on
-    /// a layered window (that path native-crashed while the editor was open).
+    /// Approximate offset only. No SelectedIndex, ScrollIntoView, or
+    /// TransformToAncestor — those native-crash this window while playing.
     /// </summary>
-    private void KeepRowInView(LineRow row, int index)
+    private void KeepRowInView(int index)
     {
-        Dispatcher.BeginInvoke(() =>
+        try
         {
-            try
-            {
             if (LiveLocked || ChkFollow?.IsChecked == false) return;
+            var now = Environment.TickCount64;
+            if (now - _lastFollowScrollMs < 1200) return;
             var sv = FindScrollViewer(LstLines);
-            if (sv == null) return;
-            if (LstLines.ItemContainerGenerator.ContainerFromItem(row) is FrameworkElement el)
-            {
-                Point at;
-                try { at = el.TransformToAncestor(sv).Transform(new Point(0, 0)); }
-                catch { return; }
-                var bottom = at.Y + el.ActualHeight;
-                if (at.Y >= 12 && bottom <= sv.ViewportHeight - 12) return;
-                var dest = sv.VerticalOffset + at.Y - sv.ViewportHeight * 0.35;
-                sv.ScrollToVerticalOffset(Math.Max(0, dest));
-                RunLog.Trace("follow-scroll i=" + index);
-                return;
-            }
-            if (LstLines.Items.Count == 0 || sv.ExtentHeight < 1) return;
+            if (sv == null || LstLines.Items.Count == 0 || sv.ExtentHeight < 1) return;
             var avg = sv.ExtentHeight / LstLines.Items.Count;
-            sv.ScrollToVerticalOffset(Math.Max(0, avg * index - sv.ViewportHeight * 0.35));
-            }
-            catch (Exception ex) { RunLog.Write("follow-scroll-ex " + ex.GetType().Name); }
-        }, DispatcherPriority.Background);
+            var dest = Math.Max(0, avg * index - sv.ViewportHeight * 0.35);
+            if (Math.Abs(dest - sv.VerticalOffset) < Math.Max(28, avg)) return;
+            _lastFollowScrollMs = now;
+            sv.ScrollToVerticalOffset(dest);
+            RunLog.Trace("follow-scroll i=" + index);
+        }
+        catch (Exception ex) { RunLog.Write("follow-scroll-ex " + ex.GetType().Name); }
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject root)
@@ -824,7 +811,7 @@ public partial class TimingEditorWindow : Window
             if (item is LineRow row && row.Key == key)
             {
                 LstLines.SelectedItem = row;
-                KeepRowInView(row, LstLines.SelectedIndex);
+                KeepRowInView(LstLines.SelectedIndex);
                 FillEditBox();
                 return;
             }
