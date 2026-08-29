@@ -65,6 +65,8 @@ public partial class MainWindow : Window
     private string? _paintTrans;
     private string? _paintNext;
     private List<KaraokeWordTiming>? _paintWords;
+    private double _paintElapsed = double.NaN;
+    private bool? _lastPlaying;
     private readonly Dictionary<string, string> _s2t = new();
     private GlobalSystemMediaTransportControlsSessionPlaybackInfo? _heldPlayback;
     private GlobalSystemMediaTransportControlsSessionTimelineProperties? _heldTimeline;
@@ -415,8 +417,20 @@ public partial class MainWindow : Window
             _clockFails = 0;
             var dur = tl.EndTime - tl.StartTime;
             _trackDuration = dur >= TimeSpan.FromSeconds(12) ? dur : null;
-            if (!playing)
+            if (_lastPlaying != playing)
+            {
+                _lastPlaying = playing;
+                RunLog.Write(playing ? "play" : "pause pos=" + (int)_clock.Position.TotalSeconds);
+            }
+            if (playing)
+            {
+                if (!_syncTimer.IsEnabled) _syncTimer.Start();
+            }
+            else
+            {
+                if (_syncTimer.IsEnabled) _syncTimer.Stop();
                 SyncLyrics();
+            }
         }
         catch
         {
@@ -574,6 +588,9 @@ public partial class MainWindow : Window
             if (elapsed < 0) elapsed = 0;
             if (idx == _paintIdx && sig == _paintSig)
             {
+                if (!_clock.IsPlaying || Math.Abs(elapsed - _paintElapsed) < 8)
+                    return;
+                _paintElapsed = elapsed;
                 SafeUpdateLyrics(_paintText,
                     _settings.HideTranslation ? null : _paintTrans,
                     _paintNext, _paintWords, elapsed);
@@ -592,6 +609,7 @@ public partial class MainWindow : Window
             _paintTrans = trans;
             _paintNext = string.IsNullOrEmpty(next) ? null : next;
             _paintWords = words;
+            _paintElapsed = elapsed;
 
             TxtCurrent.Text = text;
             TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
@@ -626,6 +644,7 @@ public partial class MainWindow : Window
         _shown = null;
         _paintIdx = int.MinValue;
         _paintSig = "";
+        _paintElapsed = double.NaN;
         ResetKaraokeCache();
     }
 

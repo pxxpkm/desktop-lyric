@@ -76,6 +76,10 @@ public partial class FullscreenWindow : Window
             var needLayout = FsCurrent.Text != (current ?? "")
                 || FsTrans.Text != (translated ?? "")
                 || FsNext.Text != (next ?? "");
+            if (!needLayout
+                && ReferenceEquals(FsCurrent.Words, wordTimings)
+                && Math.Abs(FsCurrent.LineElapsedMs - lineElapsedMs) < 8)
+                return;
             FsCurrent.SettingsFont = custom;
             FsCurrent.Text = current ?? "";
             FsCurrent.Words = wordTimings;

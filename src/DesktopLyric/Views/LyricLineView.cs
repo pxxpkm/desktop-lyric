@@ -303,13 +303,26 @@ public class LyricLineView : FrameworkElement
         if (elapsed <= startMs || durMs <= 0) return UnsungBrush();
         var pct = Math.Clamp((elapsed - startMs) / durMs, 0, 1);
         var ac = AccentColor();
-        var b = new SolidColorBrush(Color.FromRgb(
-            (byte)(0x58 + (ac.R - 0x58) * pct),
-            (byte)(0x68 + (ac.G - 0x68) * pct),
-            (byte)(0x78 + (ac.B - 0x78) * pct)));
-        b.Freeze();
-        return b;
+        if (_ramp == null || _rampAccent != ac)
+        {
+            _rampAccent = ac;
+            _ramp = new Brush[8];
+            for (int i = 0; i < 8; i++)
+            {
+                var t = (i + 1) / 8.0;
+                var br = new SolidColorBrush(Color.FromRgb(
+                    (byte)(0x58 + (ac.R - 0x58) * t),
+                    (byte)(0x68 + (ac.G - 0x68) * t),
+                    (byte)(0x78 + (ac.B - 0x78) * t)));
+                br.Freeze();
+                _ramp[i] = br;
+            }
+        }
+        return _ramp[Math.Clamp((int)(pct * 8), 0, 7)];
     }
+
+    private Color _rampAccent;
+    private Brush[]? _ramp;
 
     private static readonly SolidColorBrush UnsungFrozen = CreateUnsung();
     private static SolidColorBrush CreateUnsung()
