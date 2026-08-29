@@ -174,14 +174,6 @@ public partial class OverlayWindow : Window
         try { DragMove(); } catch { }
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
-        _closed = true;
-        _offsetHold?.Dispose();
-        _offsetHold = null;
-        base.OnClosed(e);
-    }
-
     private void OnMouseEnter(object sender, MouseEventArgs e)
     {
         var anim = new DoubleAnimation(1, TimeSpan.FromMilliseconds(150));
@@ -284,13 +276,20 @@ public partial class OverlayWindow : Window
             main.RestoreFromOverlay();
     }
 
-    private void OnClose(object sender, RoutedEventArgs e)
+    private void OnClose(object sender, RoutedEventArgs e) => Close();
+
+    protected override void OnClosed(EventArgs e)
     {
-        // Main window hides instead of quitting. Closing overlay with main hidden
-        // is the actual exit, otherwise lyrics would freeze with no UI left.
-        if (Application.Current.MainWindow is MainWindow { IsVisible: false } main)
-            main.QuitApp();
-        else
-            Close();
+        _closed = true;
+        _offsetHold?.Dispose();
+        _offsetHold = null;
+        base.OnClosed(e);
+        try
+        {
+            // Main ✕ only hides. Overlay close with main hidden is the real exit.
+            if (Application.Current is { MainWindow: MainWindow { IsVisible: false } main })
+                main.QuitApp();
+        }
+        catch { }
     }
 }

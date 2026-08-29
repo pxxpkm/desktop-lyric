@@ -45,6 +45,7 @@ public class LyricLineView : FrameworkElement
 
     private string? _karaokeKey;
     private List<(string text, double x, double y, int start, int dur)>? _karaokeLayout;
+    private List<(Geometry geo, int start, int dur)>? _karaokeGeos;
     private double _karaokeFs;
 
     private static void OnLayoutInvalidated(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -52,6 +53,7 @@ public class LyricLineView : FrameworkElement
         var view = (LyricLineView)d;
         view._karaokeLayout = null;
         view._karaokeKey = null;
+        view._karaokeGeos = null;
     }
 
     public string Text
@@ -151,13 +153,12 @@ public class LyricLineView : FrameworkElement
         var words = Words;
         if (IsCurrent && words is { Count: > 0 } && words.Count < 400)
         {
-            var layout = EnsureKaraokeLayout(words, maxW, fs);
+            var geos = EnsureKaraokeGeos(words, maxW, fs);
             var elapsed = double.IsNaN(LineElapsedMs) ? 0 : LineElapsedMs;
-            foreach (var (text, x, y, start, dur) in layout)
+            foreach (var (geo, start, dur) in geos)
             {
-                var brush = KaraokeBrush(elapsed, start, dur);
-                var ft = CreateFormatted(text, brush, 0, _karaokeFs);
-                DrawVector(dc, ft, new Point(x, y), brush);
+                if (geo.IsEmpty()) continue;
+                dc.DrawGeometry(KaraokeBrush(elapsed, start, dur), null, geo);
             }
             return;
         }
@@ -244,7 +245,28 @@ public class LyricLineView : FrameworkElement
         _karaokeKey = key;
         _karaokeLayout = layout;
         _karaokeFs = fs;
+        _karaokeGeos = null;
         return layout;
+    }
+
+    private List<(Geometry geo, int start, int dur)> EnsureKaraokeGeos(
+        IList<KaraokeWordTiming> words, double maxWidth, double fontSize)
+    {
+        var layout = EnsureKaraokeLayout(words, maxWidth, fontSize);
+        if (_karaokeGeos != null) return _karaokeGeos;
+        var geos = new List<(Geometry, int, int)>(layout.Count);
+        foreach (var (text, x, y, start, dur) in layout)
+        {
+            var ft = CreateFormatted(text, Brushes.White, 0, _karaokeFs);
+            var origin = new Point(
+                double.IsNaN(x) || double.IsInfinity(x) ? 0 : x,
+                double.IsNaN(y) || double.IsInfinity(y) ? 0 : y);
+            var geo = ft.BuildGeometry(origin);
+            if (!geo.IsEmpty()) geo.Freeze();
+            geos.Add((geo, start, dur));
+        }
+        _karaokeGeos = geos;
+        return geos;
     }
 
     private static List<List<(string text, double w, int start, int dur)>> PackKaraokeRows(

@@ -261,7 +261,7 @@ public class LyricsService
                 "https://music.163.com/api/search/get?s=" + q + "&type=1&limit=20");
             req.Content = new StringContent("", Encoding.UTF8, "application/x-www-form-urlencoded");
             req.Headers.Referrer = new Uri("https://music.163.com");
-            var resp = await _http.SendAsync(req);
+            using var resp = await _http.SendAsync(req);
             if (!resp.IsSuccessStatusCode) return [];
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
             if (!doc.RootElement.TryGetProperty("result", out var result)) return [];
@@ -303,7 +303,7 @@ public class LyricsService
             using var sReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
             sReq.Content = new StringContent(body, Encoding.UTF8, "application/json");
             sReq.Headers.Referrer = new Uri("https://y.qq.com");
-            var sResp = await _http.SendAsync(sReq);
+            using var sResp = await _http.SendAsync(sReq);
             if (!sResp.IsSuccessStatusCode) return [];
             using var sDoc = JsonDocument.Parse(await sResp.Content.ReadAsStringAsync());
             var listEl = sDoc.RootElement.GetProperty("req").GetProperty("data")
@@ -342,7 +342,7 @@ public class LyricsService
         try
         {
             var kw = Uri.EscapeDataString(title + " " + artist);
-            var sResp = await _http.GetAsync(
+            using var sResp = await _http.GetAsync(
                 "http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=" + kw + "&page=1&pagesize=20");
             if (!sResp.IsSuccessStatusCode) return [];
             using var sDoc = JsonDocument.Parse(await sResp.Content.ReadAsStringAsync());
@@ -379,7 +379,7 @@ public class LyricsService
                 url += "&artist_name=" + Uri.EscapeDataString(artist);
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.UserAgent.ParseAdd("DesktopLyric/0.1");
-            var resp = await _http.SendAsync(req);
+            using var resp = await _http.SendAsync(req);
             if (!resp.IsSuccessStatusCode) return [];
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
             var list = new List<LyricCandidate>();
@@ -417,7 +417,7 @@ public class LyricsService
             using var lReq = new HttpRequestMessage(HttpMethod.Get,
                 "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&tv=1&yv=1");
             lReq.Headers.Referrer = new Uri("https://music.163.com");
-            var lResp = await _http.SendAsync(lReq);
+            using var lResp = await _http.SendAsync(lReq);
             if (!lResp.IsSuccessStatusCode) return null;
             using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
             if (!lDoc.RootElement.TryGetProperty("lrc", out var lrc)) return null;
@@ -461,7 +461,7 @@ public class LyricsService
             using var lReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
             lReq.Content = new StringContent(lyricBody, Encoding.UTF8, "application/json");
             lReq.Headers.Referrer = new Uri("https://y.qq.com");
-            var lResp = await _http.SendAsync(lReq);
+            using var lResp = await _http.SendAsync(lReq);
             if (!lResp.IsSuccessStatusCode) return null;
             using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
             var data = lDoc.RootElement.GetProperty("req").GetProperty("data");
@@ -486,7 +486,7 @@ public class LyricsService
         try
         {
             var kw = Uri.EscapeDataString(keyword);
-            var lsResp = await _http.GetAsync(
+            using var lsResp = await _http.GetAsync(
                 "https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=" + kw + "&hash=" + hash);
             if (!lsResp.IsSuccessStatusCode) return null;
             using var lsDoc = JsonDocument.Parse(await lsResp.Content.ReadAsStringAsync());
@@ -496,7 +496,7 @@ public class LyricsService
             var id = c0.GetProperty("id").GetString();
             var ak = c0.GetProperty("accesskey").GetString();
             if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(ak)) return null;
-            var dlResp = await _http.GetAsync(
+            using var dlResp = await _http.GetAsync(
                 "https://lyrics.kugou.com/download?ver=1&client=pc&id=" + id + "&accesskey=" + ak + "&fmt=lrc&charset=utf8");
             if (!dlResp.IsSuccessStatusCode) return null;
             using var dlDoc = JsonDocument.Parse(await dlResp.Content.ReadAsStringAsync());
@@ -514,7 +514,7 @@ public class LyricsService
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, "https://lrclib.net/api/get/" + Uri.EscapeDataString(id));
             req.Headers.UserAgent.ParseAdd("DesktopLyric/0.1");
-            var resp = await _http.SendAsync(req);
+            using var resp = await _http.SendAsync(req);
             if (!resp.IsSuccessStatusCode) return null;
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
             if (!doc.RootElement.TryGetProperty("syncedLyrics", out var sl)) return null;
@@ -565,7 +565,7 @@ public class LyricsService
             req.Content = new StringContent("", Encoding.UTF8, "application/x-www-form-urlencoded");
             req.Headers.Referrer = new Uri("https://music.163.com");
 
-            var resp = await _http.SendAsync(req);
+            using var resp = await _http.SendAsync(req);
             if (!resp.IsSuccessStatusCode) return null;
 
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
@@ -579,7 +579,7 @@ public class LyricsService
             using var lReq = new HttpRequestMessage(HttpMethod.Get,
                 "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&tv=1&yv=1");
             lReq.Headers.Referrer = new Uri("https://music.163.com");
-            var lResp = await _http.SendAsync(lReq);
+            using var lResp = await _http.SendAsync(lReq);
             if (!lResp.IsSuccessStatusCode) return null;
 
             using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
@@ -629,7 +629,7 @@ public class LyricsService
             using var sReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
             sReq.Content = new StringContent(body, Encoding.UTF8, "application/json");
             sReq.Headers.Referrer = new Uri("https://y.qq.com");
-            var sResp = await _http.SendAsync(sReq);
+            using var sResp = await _http.SendAsync(sReq);
             if (!sResp.IsSuccessStatusCode) return null;
 
             using var sDoc = JsonDocument.Parse(await sResp.Content.ReadAsStringAsync());
@@ -660,7 +660,7 @@ public class LyricsService
             using var lReq = new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg");
             lReq.Content = new StringContent(lyricBody, Encoding.UTF8, "application/json");
             lReq.Headers.Referrer = new Uri("https://y.qq.com");
-            var lResp = await _http.SendAsync(lReq);
+            using var lResp = await _http.SendAsync(lReq);
             if (!lResp.IsSuccessStatusCode) return null;
 
             using var lDoc = JsonDocument.Parse(await lResp.Content.ReadAsStringAsync());
@@ -688,7 +688,7 @@ public class LyricsService
         try
         {
             var kw = Uri.EscapeDataString(title + " " + artist);
-            var sResp = await _http.GetAsync(
+            using var sResp = await _http.GetAsync(
                 "http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=" + kw + "&page=1&pagesize=8");
             if (!sResp.IsSuccessStatusCode) return null;
 
@@ -711,7 +711,7 @@ public class LyricsService
             }
             if (best < 20 || string.IsNullOrEmpty(hash)) return null;
 
-            var lsResp = await _http.GetAsync(
+            using var lsResp = await _http.GetAsync(
                 "https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=" + kw + "&hash=" + hash);
             if (!lsResp.IsSuccessStatusCode) return null;
 
@@ -724,7 +724,7 @@ public class LyricsService
             var ak = c0.GetProperty("accesskey").GetString();
             if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(ak)) return null;
 
-            var dlResp = await _http.GetAsync(
+            using var dlResp = await _http.GetAsync(
                 "https://lyrics.kugou.com/download?ver=1&client=pc&id=" + id + "&accesskey=" + ak + "&fmt=lrc&charset=utf8");
             if (!dlResp.IsSuccessStatusCode) return null;
 
@@ -749,7 +749,7 @@ public class LyricsService
 
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.UserAgent.ParseAdd("DesktopLyric/0.1");
-            var resp = await _http.SendAsync(req);
+            using var resp = await _http.SendAsync(req);
             if (!resp.IsSuccessStatusCode) return null;
 
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
@@ -798,7 +798,7 @@ public class LyricsService
             try
             {
                 var q = Uri.EscapeDataString(combined);
-                var resp = await _http.GetAsync(
+                using var resp = await _http.GetAsync(
                     "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=" + q);
                 if (!resp.IsSuccessStatusCode) continue;
 

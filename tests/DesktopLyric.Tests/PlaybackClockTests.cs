@@ -76,6 +76,21 @@ public class PlaybackClockTests
     }
 
     [Fact]
+    public void freeze_stops_interpolation_without_rewind()
+    {
+        var t = TimeSpan.Zero;
+        var clock = new PlaybackClock(() => t);
+
+        clock.Apply(TimeSpan.FromSeconds(10), playing: true);
+        t = TimeSpan.FromSeconds(4);
+        clock.Freeze();
+        t = TimeSpan.FromSeconds(20);
+
+        Assert.False(clock.IsPlaying);
+        Assert.Equal(TimeSpan.FromSeconds(14), clock.Position);
+    }
+
+    [Fact]
     public void playback_rate_scales_interpolation()
     {
         var t = TimeSpan.Zero;

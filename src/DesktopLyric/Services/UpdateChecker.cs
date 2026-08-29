@@ -19,7 +19,7 @@ public static class UpdateChecker
             using var req = new HttpRequestMessage(HttpMethod.Get,
                 $"https://api.github.com/repos/{Repo}/releases/latest");
             req.Headers.UserAgent.ParseAdd("DesktopLyric/0.9");
-            var resp = await _http.SendAsync(req);
+            using var resp = await _http.SendAsync(req);
             if (!resp.IsSuccessStatusCode) return null;
 
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());

@@ -26,6 +26,17 @@ public sealed class PlaybackClock
 
     public bool IsPlaying => _playing;
 
+    /// <summary>
+    /// Stop interpolating at the current estimated position (player gone /
+    /// SMTC session died). Does not rewind.
+    /// </summary>
+    public void Freeze()
+    {
+        if (!_hasAnchor || !_playing) return;
+        _basePos = Position;
+        _playing = false;
+    }
+
     public TimeSpan Position
     {
         get

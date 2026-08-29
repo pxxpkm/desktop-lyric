@@ -46,7 +46,7 @@ public partial class MainWindow : Window
     private string _lastArtKey = "";
     private bool _overlayHiddenForFullscreen;
     private AppSettings _settings;
-    private bool _forceClose;
+    private volatile bool _forceClose;
     private int _karaokeLineIdx = -1;
     private List<KaraokeWordTiming>? _karaokeWords;
     private List<KaraokeWordTiming>? _karaokeSrc;
@@ -54,9 +54,18 @@ public partial class MainWindow : Window
     private string _romajiInFlight = "";
     private int _pollGen;
     private int _artGen;
-    private bool _clockQueued;
-    private bool _pollQueued;
+    private volatile bool _clockQueued;
+    private volatile bool _pollQueued;
     private TimeSpan? _trackDuration;
+    private int _clockFails;
+    private bool _artMissing;
+    private int _paintIdx = int.MinValue;
+    private string _paintSig = "";
+    private string _paintText = "";
+    private string? _paintTrans;
+    private string? _paintNext;
+    private List<KaraokeWordTiming>? _paintWords;
+    private readonly Dictionary<string, string> _s2t = new();
     private GlobalSystemMediaTransportControlsSessionPlaybackInfo? _heldPlayback;
     private GlobalSystemMediaTransportControlsSessionTimelineProperties? _heldTimeline;
 
@@ -137,17 +146,23 @@ public partial class MainWindow : Window
 
     private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, object args)
     {
-        WinRtLifetime.Suppress(args);
-        Dispatcher.BeginInvoke(() =>
+        try
         {
-            if (_forceClose || _mgr == null) return;
-            try
+            WinRtLifetime.Suppress(args);
+            var d = Dispatcher;
+            if (d.HasShutdownStarted || d.HasShutdownFinished) return;
+            d.BeginInvoke(() =>
             {
-                BindSession(_mgr.GetCurrentSession());
-                ApplySessionUi();
-            }
-            catch (Exception ex) { ErrorLog.Write(ex); }
-        });
+                if (_forceClose || _mgr == null) return;
+                try
+                {
+                    if (!BindSession(_mgr.GetCurrentSession())) return;
+                    ApplySessionUi();
+                }
+                catch (Exception ex) { ErrorLog.Write(ex); }
+            });
+        }
+        catch { }
     }
 
     private void ApplySessionUi()
@@ -164,6 +179,10 @@ public partial class MainWindow : Window
         else
         {
             TxtStatus.Text = "no media session — play something";
+            _pollTimer.Stop();
+            _syncTimer.Stop();
+            _clock.Freeze();
+            SyncLyrics();
         }
     }
 
@@ -191,11 +210,17 @@ public partial class MainWindow : Window
                     TxtArtist.Text = ToDisplay(artist);
 
                     var artKey = title + "\n" + artist;
-                    if (artKey != _lastArtKey || _albumArt == null)
+                    if (artKey != _lastArtKey)
                     {
+                        _artMissing = false;
                         await LoadAlbumArt(props);
                         if (_forceClose) return;
                         _lastArtKey = artKey;
+                    }
+                    else if (_albumArt == null && !_artMissing)
+                    {
+                        await LoadAlbumArt(props);
+                        if (_forceClose) return;
                     }
                     _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
                     _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
@@ -244,7 +269,8 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    private void BindSession(GlobalSystemMediaTransportControlsSession? session)
+    /// <returns>true if the live session changed.</returns>
+    private bool BindSession(GlobalSystemMediaTransportControlsSession? session)
     {
         if (_session != null && session != null)
         {
@@ -253,7 +279,7 @@ public partial class MainWindow : Window
                 if (_session.SourceAppUserModelId == session.SourceAppUserModelId)
                 {
                     WinRtLifetime.Suppress(session);
-                    return;
+                    return false;
                 }
             }
             catch { }
@@ -273,53 +299,81 @@ public partial class MainWindow : Window
 
         DropHeldSmtc();
         _session = session;
-        if (_session == null) return;
+        if (_session == null) return true;
 
         _session.PlaybackInfoChanged += OnPlaybackInfoChanged;
         _session.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
         _session.MediaPropertiesChanged += OnMediaPropertiesChanged;
+        return true;
     }
 
     private void OnPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, object args)
     {
-        WinRtLifetime.Suppress(args);
+        try { WinRtLifetime.Suppress(args); }
+        catch { }
         QueueRefreshClock();
     }
 
     private void OnTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, object args)
     {
-        WinRtLifetime.Suppress(args);
+        try { WinRtLifetime.Suppress(args); }
+        catch { }
         QueueRefreshClock();
     }
 
     private void OnMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, object args)
     {
-        WinRtLifetime.Suppress(args);
+        try { WinRtLifetime.Suppress(args); }
+        catch { }
         QueuePollNowPlaying();
     }
 
     private void QueueRefreshClock()
     {
-        if (_clockQueued || _forceClose) return;
-        _clockQueued = true;
-        Dispatcher.BeginInvoke(() =>
+        try
         {
-            _clockQueued = false;
-            if (_forceClose || _session == null) return;
-            RefreshClock();
-        });
+            if (_forceClose) return;
+            var d = Dispatcher;
+            if (d.HasShutdownStarted || d.HasShutdownFinished) return;
+            if (!d.CheckAccess())
+            {
+                d.BeginInvoke(QueueRefreshClock);
+                return;
+            }
+            if (_clockQueued) return;
+            _clockQueued = true;
+            d.BeginInvoke(() =>
+            {
+                _clockQueued = false;
+                if (_forceClose || _session == null) return;
+                RefreshClock();
+            });
+        }
+        catch { }
     }
 
     private void QueuePollNowPlaying()
     {
-        if (_pollQueued || _forceClose) return;
-        _pollQueued = true;
-        Dispatcher.BeginInvoke(() =>
+        try
         {
-            _pollQueued = false;
-            if (_forceClose || _session == null) return;
-            PollNowPlaying();
-        });
+            if (_forceClose) return;
+            var d = Dispatcher;
+            if (d.HasShutdownStarted || d.HasShutdownFinished) return;
+            if (!d.CheckAccess())
+            {
+                d.BeginInvoke(QueuePollNowPlaying);
+                return;
+            }
+            if (_pollQueued) return;
+            _pollQueued = true;
+            d.BeginInvoke(() =>
+            {
+                _pollQueued = false;
+                if (_forceClose || _session == null) return;
+                PollNowPlaying();
+            });
+        }
+        catch { }
     }
 
     private void RefreshClock()
@@ -334,12 +388,20 @@ public partial class MainWindow : Window
             var playing = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             var rate = info.PlaybackRate is > 0 and var r ? r : 1.0;
             _clock.Apply(tl.Position, playing, rate);
+            _clockFails = 0;
             var dur = tl.EndTime - tl.StartTime;
             _trackDuration = dur >= TimeSpan.FromSeconds(12) ? dur : null;
             if (!playing)
                 SyncLyrics();
         }
-        catch { }
+        catch
+        {
+            if (++_clockFails >= 5)
+            {
+                _clockFails = 0;
+                _clock.Freeze();
+            }
+        }
         finally
         {
             HoldSmtc(ref _heldPlayback, info);
@@ -375,10 +437,12 @@ public partial class MainWindow : Window
             if (thumb == null)
             {
                 _albumArt = null;
+                _artMissing = true;
                 AlbumArt.Source = null;
                 _fullscreen?.SetAlbumArt(null);
                 return;
             }
+            _artMissing = false;
             var artGen = ++_artGen;
             stream = await thumb.OpenReadAsync();
             using var ms = new MemoryStream();
@@ -396,10 +460,7 @@ public partial class MainWindow : Window
             finally
             {
                 if (transferred)
-                {
-                    WinRtLifetime.Suppress(stream);
                     stream = null;
-                }
             }
             ms.Position = 0;
             var bmp = new BitmapImage();
@@ -443,7 +504,11 @@ public partial class MainWindow : Window
     {
         if (_lines == null || _lines.Count == 0)
         {
-            SafeUpdateLyrics("", null, null, null, 0);
+            if (_paintIdx != -2)
+            {
+                _paintIdx = -2;
+                SafeUpdateLyrics("", null, null, null, 0);
+            }
             return;
         }
 
@@ -477,6 +542,10 @@ public partial class MainWindow : Window
                 break;
             }
             var upcoming = NextLyricText(lines, reached < 0 ? -1 : reached);
+            var gapSig = $"-1|{reached}|{upcoming}";
+            if (_paintIdx == -1 && _paintSig == gapSig) return;
+            _paintIdx = -1;
+            _paintSig = gapSig;
             var lastSung = reached >= 0 ? ToDisplay(lines[reached].Text) : "";
             TxtCurrent.Text = "";
             TxtTrans.Text = "";
@@ -488,12 +557,30 @@ public partial class MainWindow : Window
         }
 
         {
+            var nextIdx = LyricsService.NextSungIndex(lines, idx);
+            var sig = $"{idx}|{lines[idx].Text}|{lines[idx].TranslatedText}|{nextIdx}|{_settings.HideTranslation}";
+            var elapsed = (lyricPos - LyricsService.TimeOf(lines[idx], _lineShifts)).TotalMilliseconds;
+            if (elapsed < 0) elapsed = 0;
+            if (idx == _paintIdx && sig == _paintSig)
+            {
+                SafeUpdateLyrics(_paintText,
+                    _settings.HideTranslation ? null : _paintTrans,
+                    _paintNext, _paintWords, elapsed);
+                return;
+            }
+
             var text = ToDisplay(lines[idx].Text);
             var trans = ToDisplay(LyricsService.ResolvedTranslation(lines, lines[idx]));
             var prevIdx = LyricsService.PrevSungIndex(lines, idx);
             var prev = prevIdx >= 0 ? ToDisplay(lines[prevIdx].Text) : "";
-            var next = NextLyricText(lines, idx) ?? "";
+            var next = nextIdx >= 0 ? ToDisplay(lines[nextIdx].Text) : "";
             var words = KaraokeWordsForLine(lines, idx);
+            _paintIdx = idx;
+            _paintSig = sig;
+            _paintText = text;
+            _paintTrans = trans;
+            _paintNext = string.IsNullOrEmpty(next) ? null : next;
+            _paintWords = words;
 
             TxtCurrent.Text = text;
             TxtTrans.Text = _settings.HideTranslation ? "" : (trans ?? "");
@@ -501,11 +588,9 @@ public partial class MainWindow : Window
             TxtNext.Text = next;
             ApplyLineFonts(text, trans, prev, next);
 
-            var elapsed = (lyricPos - LyricsService.TimeOf(lines[idx], _lineShifts)).TotalMilliseconds;
-            if (elapsed < 0) elapsed = 0;
             SafeUpdateLyrics(text,
                 _settings.HideTranslation ? null : trans,
-                string.IsNullOrEmpty(next) ? null : next,
+                _paintNext,
                 words,
                 elapsed);
 
@@ -528,6 +613,8 @@ public partial class MainWindow : Window
     private void InvalidateLyricCache()
     {
         _shown = null;
+        _paintIdx = int.MinValue;
+        _paintSig = "";
         ResetKaraokeCache();
     }
 
@@ -562,8 +649,18 @@ public partial class MainWindow : Window
             {
                 var q = Uri.EscapeDataString(input);
                 var url = $"https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=rm&q={q}";
-                var resp = await _romajiHttp.GetAsync(url);
-                if (!resp.IsSuccessStatusCode) return;
+                using var resp = await _romajiHttp.GetAsync(url);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    await Dispatcher.BeginInvoke(() =>
+                    {
+                        if (_romajiInFlight != input) return;
+                        _lastRomajiInput = input;
+                        _lastRomajiOutput = "";
+                        _romajiInFlight = "";
+                    });
+                    return;
+                }
                 var json = await resp.Content.ReadAsStringAsync();
                 using var doc = System.Text.Json.JsonDocument.Parse(json);
                 var root = doc.RootElement;
@@ -587,9 +684,12 @@ public partial class MainWindow : Window
                 {
                     await Dispatcher.BeginInvoke(() =>
                     {
+                        if (_forceClose) return;
                         _lastRomajiInput = input;
                         _lastRomajiOutput = romaji;
-                        TxtRomaji.Text = romaji;
+                        _romajiInFlight = "";
+                        if (TxtCurrent.Text == input)
+                            TxtRomaji.Text = romaji;
                     });
                 }
             }
@@ -614,7 +714,11 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrEmpty(text)) return text ?? "";
         if (!_settings.ForceTraditional) return text;
-        return S2TConverter.Convert(text);
+        if (_s2t.TryGetValue(text, out var hit)) return hit;
+        var converted = S2TConverter.Convert(text);
+        if (_s2t.Count > 4000) _s2t.Clear();
+        _s2t[text] = converted;
+        return converted;
     }
 
     private void ResetKaraokeCache()
@@ -736,6 +840,8 @@ public partial class MainWindow : Window
     {
         try
         {
+            _paintIdx = int.MinValue;
+            _paintSig = "";
             ApplySettings();
             ApplyTradButton();
             ApplyFontButton();
@@ -824,7 +930,10 @@ public partial class MainWindow : Window
         ApplyTradButton();
         _overlay?.RefreshTradButton();
         _fullscreen?.RefreshTradButton();
+        _paintIdx = int.MinValue;
+        _paintSig = "";
         ResetKaraokeCache();
+        SyncLyrics();
     }
 
     private void ApplyTradButton()
