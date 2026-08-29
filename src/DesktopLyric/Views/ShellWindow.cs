@@ -14,21 +14,15 @@ internal static class ShellWindow
     private const int GwlExStyle = -20;
     private const int WsExAppWindow = 0x00040000;
     private const int WsExToolWindow = 0x00000080;
-    private const uint SwpNoMove = 0x0002;
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoZOrder = 0x0004;
-    private const uint SwpFrameChanged = 0x0020;
 
     public static void NeverInTaskbar(Window w)
     {
         w.ShowInTaskbar = false;
-        if (w.IsLoaded)
-            Apply(w, exclude: true);
-        w.SourceInitialized -= OnNever;
-        w.SourceInitialized += OnNever;
+        w.Loaded -= OnNeverLoaded;
+        w.Loaded += OnNeverLoaded;
     }
 
-    private static void OnNever(object? sender, EventArgs e)
+    private static void OnNeverLoaded(object sender, RoutedEventArgs e)
     {
         if (sender is Window w)
             Apply(w, exclude: true);
@@ -50,8 +44,6 @@ internal static class ShellWindow
             else
                 ex = (ex | WsExAppWindow) & ~WsExToolWindow;
             SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)ex);
-            SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
-                SwpNoMove | SwpNoSize | SwpNoZOrder | SwpFrameChanged);
         }
         catch { }
     }
@@ -61,8 +53,4 @@ internal static class ShellWindow
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
-        int x, int y, int cx, int cy, uint flags);
 }

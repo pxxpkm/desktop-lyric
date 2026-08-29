@@ -123,6 +123,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        RunLog.Write("loaded visible=" + IsVisible);
         try
         {
             _mgr = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
@@ -135,13 +136,16 @@ public partial class MainWindow : Window
             BindSession(_mgr.GetCurrentSession());
             ApplySessionUi();
             _mgr.CurrentSessionChanged += OnCurrentSessionChanged;
+            RunLog.Write("smtc-ok session=" + (_session != null));
         }
         catch (Exception ex)
         {
+            RunLog.Write("smtc-error " + ex.GetType().Name);
             TxtStatus.Text = "smtc error: " + ex.Message;
         }
 
         ShowOverlay();
+        RunLog.Write("overlay-shown visible=" + (_overlay?.IsVisible == true));
     }
 
     private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, object args)

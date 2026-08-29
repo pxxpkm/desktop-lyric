@@ -277,20 +277,27 @@ public partial class OverlayWindow : Window
             main.RestoreFromOverlay();
     }
 
-    private void OnClose(object sender, RoutedEventArgs e) => Close();
+    private void OnClose(object sender, RoutedEventArgs e)
+    {
+        // Only the ✕ button quits when main is hidden. Closed from style/HWND
+        // changes must not kill the process (startup lasted ~4s with no dump).
+        if (Application.Current is { MainWindow: MainWindow { IsVisible: false } main })
+            main.QuitApp("overlay-close");
+        else
+            Close();
+    }
 
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
         _offsetHold?.Dispose();
         _offsetHold = null;
-        base.OnClosed(e);
         try
         {
-            // Main ✕ only hides. Overlay close with main hidden is the real exit.
-            if (Application.Current is { MainWindow: MainWindow { IsVisible: false } main })
-                main.QuitApp("overlay-close");
+            var vis = Application.Current?.MainWindow?.IsVisible;
+            RunLog.Write("overlay-closed mainVisible=" + vis);
         }
         catch { }
+        base.OnClosed(e);
     }
 }
