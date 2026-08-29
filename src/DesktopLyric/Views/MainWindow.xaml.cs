@@ -79,6 +79,9 @@ public partial class MainWindow : Window
     private bool _loggedFirstPaint;
     private bool _artBusy;
     private bool _artDeferred;
+    private string _pendingTitle = "";
+    private string _pendingArtist = "";
+    private DispatcherTimer? _titleHold;
 
     public MainWindow()
     {
@@ -255,6 +258,16 @@ public partial class MainWindow : Window
 
                 if (!string.IsNullOrEmpty(title))
                 {
+                    // Hover previews (YouTube mini-player / thumbnail) briefly
+                    // rewrite SMTC title. Keep the committed track until the
+                    // new name stays put and does not look like a 0:00 preview.
+                    if (!string.IsNullOrEmpty(_lastTitle) && title != _lastTitle)
+                    {
+                        ArmTitleHold(title, artist);
+                        return;
+                    }
+                    CancelTitleHold();
+
                     TxtTitle.Text = ToDisplay(title);
                     TxtArtist.Text = ToDisplay(artist);
 
@@ -271,50 +284,12 @@ public partial class MainWindow : Window
                     _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
                     _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
 
-                    var titleChanged = title != _lastTitle;
-                    var artistFilled = !titleChanged
-                        && string.IsNullOrEmpty(_lastArtist)
+                    var artistFilled = string.IsNullOrEmpty(_lastArtist)
                         && !string.IsNullOrEmpty(artist);
-                    if (titleChanged)
-                    {
-                        _trackDuration = null;
-                        _loggedFirstPaint = false;
-                    }
                     RefreshClock();
-                    if (titleChanged || artistFilled)
+                    if (string.IsNullOrEmpty(_lastTitle) || artistFilled)
                     {
-                        _lastTitle = title;
-                        _lastArtist = artist;
-                        LoadTrackOffset();
-                        _lyrics.Cancel();
-                        if (titleChanged)
-                        {
-                            TxtCurrent.Text = "searching...";
-                            TxtTrans.Text = "";
-                            TxtPrev.Text = "";
-                            TxtNext.Text = "";
-                        }
-
-                        var requestedTitle = title;
-                        RunLog.Write("search-begin");
-                        var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
-                        if (_forceClose || _lastTitle != requestedTitle) return;
-                        if (result == null)
-                        {
-                            RunLog.Write("search-cancel");
-                            return;
-                        }
-                        RunLog.Write("search-done n=" + result.Count);
-                        if (result.Count > 0)
-                        {
-                            SetLines(result);
-                            TxtCurrent.Text = "♪";
-                        }
-                        else
-                        {
-                            SetLines([]);
-                            TxtCurrent.Text = "no lyrics found";
-                        }
+                        await CommitTrackAsync(title, artist, search: true);
                     }
                     if (needArt && WindowGuard.CanTouch(_fullscreen))
                         ScheduleAlbumArt();
@@ -330,6 +305,126 @@ public partial class MainWindow : Window
             finally { WinRtLifetime.Suppress(props); }
         }
         catch { }
+    }
+
+    private void ArmTitleHold(string title, string artist)
+    {
+        if (title == _pendingTitle)
+        {
+            _pendingArtist = artist;
+            return;
+        }
+        _pendingTitle = title;
+        _pendingArtist = artist;
+        RunLog.Write("title-hold");
+        _titleHold ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+        _titleHold.Tick -= OnTitleHold;
+        _titleHold.Tick += OnTitleHold;
+        _titleHold.Stop();
+        _titleHold.Start();
+    }
+
+    private void CancelTitleHold()
+    {
+        _titleHold?.Stop();
+        _pendingTitle = "";
+        _pendingArtist = "";
+    }
+
+    private async void OnTitleHold(object? sender, EventArgs e)
+    {
+        _titleHold?.Stop();
+        var title = _pendingTitle;
+        var artist = _pendingArtist;
+        if (_forceClose || string.IsNullOrEmpty(title) || title == _lastTitle)
+        {
+            CancelTitleHold();
+            return;
+        }
+        if (LooksLikeHoverPreview())
+        {
+            RunLog.Write("title-ignore-preview");
+            _pendingTitle = "";
+            _pendingArtist = "";
+            return;
+        }
+        RunLog.Write("title-commit");
+        _pendingTitle = "";
+        _pendingArtist = "";
+        try
+        {
+            await CommitTrackAsync(title, artist, search: true);
+            RefreshClock();
+        }
+        catch (Exception ex) { ErrorLog.Write(ex); }
+    }
+
+    private bool LooksLikeHoverPreview()
+    {
+        if (!_clock.IsPlaying) return false;
+        if (_session == null) return false;
+        try
+        {
+            var tl = _session.GetTimelineProperties();
+            var pos = tl.Position;
+            HoldSmtc(ref _heldTimeline, tl);
+            var clock = _clock.Position;
+            if ((pos - clock).Duration() < TimeSpan.FromSeconds(1.5))
+                return true;
+            return _lastPlaying == true && clock.TotalSeconds >= 8 && pos.TotalSeconds < 4;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task CommitTrackAsync(string title, string artist, bool search)
+    {
+        var titleChanged = title != _lastTitle;
+        _lastTitle = title;
+        _lastArtist = artist;
+        TxtTitle.Text = ToDisplay(title);
+        TxtArtist.Text = ToDisplay(artist);
+        _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
+        _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
+        if (!search) return;
+        if (titleChanged)
+        {
+            _trackDuration = null;
+            _loggedFirstPaint = false;
+            LoadTrackOffset();
+            _lyrics.Cancel();
+            TxtCurrent.Text = "searching...";
+            TxtTrans.Text = "";
+            TxtPrev.Text = "";
+            TxtNext.Text = "";
+        }
+        else
+        {
+            LoadTrackOffset();
+            _lyrics.Cancel();
+        }
+        var requestedTitle = title;
+        RunLog.Write("search-begin");
+        var result = await _lyrics.SearchAsync(title, artist, GetTrackDuration());
+        if (_forceClose || _lastTitle != requestedTitle) return;
+        if (result == null)
+        {
+            RunLog.Write("search-cancel");
+            return;
+        }
+        RunLog.Write("search-done n=" + result.Count);
+        if (result.Count > 0)
+        {
+            SetLines(result);
+            TxtCurrent.Text = "♪";
+        }
+        else
+        {
+            SetLines([]);
+            TxtCurrent.Text = "no lyrics found";
+        }
     }
 
     /// <returns>true if the live session changed.</returns>
@@ -981,6 +1076,7 @@ public partial class MainWindow : Window
         try { _watchdog?.Dispose(); } catch { }
         _watchdog = null;
         _artTimer?.Stop();
+        _titleHold?.Stop();
         StopSmtc();
         _offsetHold?.Dispose();
         _offsetHold = null;
