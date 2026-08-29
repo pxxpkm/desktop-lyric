@@ -78,6 +78,7 @@ public partial class MainWindow : Window
     private DispatcherTimer? _artTimer;
     private bool _loggedFirstPaint;
     private bool _artBusy;
+    private bool _artDeferred;
 
     public MainWindow()
     {
@@ -258,8 +259,14 @@ public partial class MainWindow : Window
                     TxtArtist.Text = ToDisplay(artist);
 
                     var artKey = title + "\n" + artist;
-                    var needArt = artKey != _lastArtKey || (_albumArt == null && !_artMissing);
-                    if (artKey != _lastArtKey) _artMissing = false;
+                    if (artKey != _lastArtKey)
+                    {
+                        _artMissing = false;
+                        _artDeferred = false;
+                        _albumArt = null;
+                    }
+                    var needArt = artKey != _lastArtKey
+                        || (_albumArt == null && !_artMissing && !_artDeferred);
                     if (needArt) _lastArtKey = artKey;
                     _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
                     _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
@@ -312,7 +319,10 @@ public partial class MainWindow : Window
                     if (needArt && WindowGuard.CanTouch(_fullscreen))
                         ScheduleAlbumArt();
                     else if (needArt)
+                    {
+                        _artDeferred = true;
                         RunLog.Write("art-hold");
+                    }
                 }
                 else
                     RefreshClock();
@@ -1192,7 +1202,10 @@ public partial class MainWindow : Window
         _fullscreen.SetTrackInfo(ToDisplay(_lastTitle), ToDisplay(TxtArtist.Text));
         _fullscreen.SetAlbumArt(_albumArt);
         if (_albumArt == null && !_artMissing)
+        {
+            _artDeferred = false;
             ScheduleAlbumArt();
+        }
         _fullscreen.Closed += (_, _) =>
         {
             _fullscreen = null;
