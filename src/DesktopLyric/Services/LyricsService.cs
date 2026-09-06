@@ -256,37 +256,19 @@ public class LyricsService
     {
         try
         {
-            var q = Uri.EscapeDataString(title + " " + artist);
-            using var req = new HttpRequestMessage(HttpMethod.Post,
-                "https://music.163.com/api/search/get?s=" + q + "&type=1&limit=20");
-            req.Content = new StringContent("", Encoding.UTF8, "application/x-www-form-urlencoded");
-            req.Headers.Referrer = new Uri("https://music.163.com");
-            using var resp = await _http.SendAsync(req);
-            if (!resp.IsSuccessStatusCode) return [];
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-            if (!doc.RootElement.TryGetProperty("result", out var result)) return [];
-            if (!result.TryGetProperty("songs", out var songs)) return [];
+            using var doc = await NeteaseCloudSearch(title, artist, 20);
+            if (doc == null || !TryNeteaseSongs(doc.RootElement, out var songs)) return [];
             var list = new List<LyricCandidate>();
             foreach (var s in songs.EnumerateArray())
             {
-                var name = s.GetProperty("name").GetString() ?? "";
-                var artists = "";
-                if (s.TryGetProperty("artists", out var arts))
-                    artists = string.Join(", ", arts.EnumerateArray().Select(a => a.GetProperty("name").GetString()));
-                var album = "";
-                if (s.TryGetProperty("album", out var al) && al.TryGetProperty("name", out var an))
-                    album = an.GetString() ?? "";
-                var dur = TimeSpan.Zero;
-                if (s.TryGetProperty("duration", out var d) && d.TryGetInt32(out var ms) && ms > 0)
-                    dur = TimeSpan.FromMilliseconds(ms);
                 list.Add(new LyricCandidate
                 {
                     Key = "ncm:" + s.GetProperty("id").GetInt64(),
                     Source = "網易雲",
-                    Title = name,
-                    Artist = artists,
-                    Album = album,
-                    Duration = dur,
+                    Title = s.GetProperty("name").GetString() ?? "",
+                    Artist = NeteaseArtistNames(s),
+                    Album = NeteaseAlbumName(s),
+                    Duration = TimeSpan.FromMilliseconds(NeteaseDurationMs(s)),
                 });
             }
             return list;
@@ -559,21 +541,11 @@ public class LyricsService
     {
         try
         {
-            var q = Uri.EscapeDataString(title + " " + artist);
-            using var req = new HttpRequestMessage(HttpMethod.Post,
-                "https://music.163.com/api/search/get?s=" + q + "&type=1&limit=8");
-            req.Content = new StringContent("", Encoding.UTF8, "application/x-www-form-urlencoded");
-            req.Headers.Referrer = new Uri("https://music.163.com");
-
-            using var resp = await _http.SendAsync(req);
-            if (!resp.IsSuccessStatusCode) return null;
-
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-            if (!doc.RootElement.TryGetProperty("result", out var result)) return null;
-            if (!result.TryGetProperty("songs", out var songs)) return null;
+            using var doc = await NeteaseCloudSearch(title, artist, 8);
+            if (doc == null || !TryNeteaseSongs(doc.RootElement, out var songs)) return null;
             if (songs.GetArrayLength() == 0) return null;
 
-            var songId = PickBest(songs, title, artist, "name", "artists", trackDur);
+            var songId = PickBest(songs, title, artist, trackDur);
             if (songId < 0) return null;
 
             using var lReq = new HttpRequestMessage(HttpMethod.Get,
@@ -912,8 +884,77 @@ public class LyricsService
         return result;
     }
 
-    private static long PickBest(JsonElement songs, string title, string artist, string nameKey, string artistsKey,
-        TimeSpan? trackDur = null)
+    private async Task<JsonDocument?> NeteaseCloudSearch(string title, string artist, int limit)
+    {
+        var q = (title + " " + artist).Trim();
+        if (q.Length == 0) return null;
+        var body = "s=" + Uri.EscapeDataString(q)
+            + "&type=1&limit=" + limit + "&offset=0&total=true";
+        using var req = new HttpRequestMessage(HttpMethod.Post,
+            "https://music.163.com/api/cloudsearch/pc");
+        req.Content = new StringContent(body, Encoding.UTF8, "application/x-www-form-urlencoded");
+        req.Headers.Referrer = new Uri("https://music.163.com");
+        using var resp = await _http.SendAsync(req);
+        if (!resp.IsSuccessStatusCode)
+        {
+            RunLog.Write("ncm-search http=" + (int)resp.StatusCode);
+            return null;
+        }
+        var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        if (doc.RootElement.TryGetProperty("code", out var codeEl)
+            && codeEl.TryGetInt32(out var code) && code != 200)
+        {
+            RunLog.Write("ncm-search code=" + code);
+            doc.Dispose();
+            return null;
+        }
+        var n = TryNeteaseSongs(doc.RootElement, out var songs) ? songs.GetArrayLength() : 0;
+        RunLog.Write("ncm-search n=" + n + " q=" + q);
+        return doc;
+    }
+
+    private static bool TryNeteaseSongs(JsonElement root, out JsonElement songs)
+    {
+        songs = default;
+        if (!root.TryGetProperty("result", out var result)) return false;
+        if (!result.TryGetProperty("songs", out songs)) return false;
+        return songs.ValueKind == JsonValueKind.Array;
+    }
+
+    private static string NeteaseArtistNames(JsonElement song)
+    {
+        if (TryNeteaseArtists(song, out var arts))
+            return string.Join(", ", arts.EnumerateArray().Select(a => a.GetProperty("name").GetString()));
+        return "";
+    }
+
+    private static string NeteaseAlbumName(JsonElement song)
+    {
+        foreach (var key in new[] { "al", "album" })
+            if (song.TryGetProperty(key, out var al)
+                && al.ValueKind == JsonValueKind.Object
+                && al.TryGetProperty("name", out var n))
+                return n.GetString() ?? "";
+        return "";
+    }
+
+    private static int NeteaseDurationMs(JsonElement song)
+    {
+        foreach (var key in new[] { "dt", "duration" })
+            if (song.TryGetProperty(key, out var d) && d.TryGetInt32(out var ms) && ms > 0)
+                return ms;
+        return 0;
+    }
+
+    private static bool TryNeteaseArtists(JsonElement song, out JsonElement arts)
+    {
+        if (song.TryGetProperty("ar", out arts) && arts.ValueKind == JsonValueKind.Array) return true;
+        if (song.TryGetProperty("artists", out arts) && arts.ValueKind == JsonValueKind.Array) return true;
+        arts = default;
+        return false;
+    }
+
+    private static long PickBest(JsonElement songs, string title, string artist, TimeSpan? trackDur = null)
     {
         long bestId = -1; int bestScore = int.MinValue;
         var tLow = title.ToLowerInvariant().Trim();
@@ -922,22 +963,21 @@ public class LyricsService
         var wantTv = LyricChoiceStore.LooksLikeTvSize(tLow) || LyricChoiceStore.LooksLikeTvOp(tLow);
         foreach (var song in songs.EnumerateArray())
         {
-            var name = (song.GetProperty(nameKey).GetString() ?? "").ToLowerInvariant();
+            var name = (song.GetProperty("name").GetString() ?? "").ToLowerInvariant();
             var nCore = CoreTitle(name);
             int sc = 0;
             if (nCore == tCore || name == tLow) sc += 100;
             else if (nCore.Contains(tCore) || tCore.Contains(nCore)) sc += 50;
             if (wantTv && LyricChoiceStore.LooksLikeTvSize(name)) sc += 50;
             if (!wantTv && LyricChoiceStore.LooksLikeTvSize(name)) sc -= 20;
-            if (song.TryGetProperty(artistsKey, out var arts))
+            if (TryNeteaseArtists(song, out var arts))
                 foreach (var a in arts.EnumerateArray())
                 {
                     var an = (a.GetProperty("name").GetString() ?? "").ToLowerInvariant();
                     if (an == aLow || aLow.Contains(an) || an.Contains(aLow)) { sc += 30; break; }
                 }
-            if (trackDur is { TotalSeconds: >= 20 } td
-                && song.TryGetProperty("duration", out var dEl)
-                && dEl.TryGetInt32(out var ms) && ms >= 8000)
+            var ms = NeteaseDurationMs(song);
+            if (trackDur is { TotalSeconds: >= 20 } td && ms >= 8000)
             {
                 var ratio = (ms / 1000.0) / td.TotalSeconds;
                 if (ratio is >= 0.85 and <= 1.15) sc += 80;
