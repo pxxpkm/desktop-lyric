@@ -17,7 +17,6 @@ public partial class PickSongWindow : Window
     public PickSongWindow(LyricsService lyrics, string title, string artist, TimeSpan? trackDuration = null)
     {
         InitializeComponent();
-        ShowInTaskbar = false;
         _lyrics = lyrics;
         _trackDuration = trackDuration;
         TxtTitle.Text = LyricChoiceStore.SearchTitle(title);

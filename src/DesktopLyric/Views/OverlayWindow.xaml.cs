@@ -1,8 +1,10 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using DesktopLyric.Services;
 
 namespace DesktopLyric.Views;
@@ -13,6 +15,7 @@ public partial class OverlayWindow : Window
     private bool _applyingSize;
     private bool _closed;
     private HoldRepeat? _offsetHold;
+    private DispatcherTimer? _hitTimer;
 
     public event Action? TraditionalToggled;
     public event Action<int>? OffsetNudged;
@@ -25,6 +28,7 @@ public partial class OverlayWindow : Window
     public OverlayWindow(AppSettings settings)
     {
         InitializeComponent();
+        ShowActivated = false;
         _settings = settings;
         ApplyAccentColor();
         ApplyTradButton();
@@ -40,9 +44,42 @@ public partial class OverlayWindow : Window
         {
             if (PresentationSource.FromVisual(this) is HwndSource src && src.CompositionTarget != null)
                 src.CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
+            ShellWindow.NoActivate(this);
+            _hitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+            _hitTimer.Tick += (_, _) => UpdateClickThrough();
+            _hitTimer.Start();
+            UpdateClickThrough();
             RunLog.Write("overlay-sw-render");
         }
         catch (Exception ex) { RunLog.Write("overlay-sw-ex " + ex.GetType().Name); }
+    }
+
+    private void UpdateClickThrough()
+    {
+        if (_closed || !IsVisible) return;
+        if (Mouse.LeftButton == MouseButtonState.Pressed) return;
+        ShellWindow.ClickThrough(this, !CursorOverWindow());
+    }
+
+    private bool CursorOverWindow()
+    {
+        if (!GetCursorPos(out var pt)) return false;
+        try
+        {
+            var p = PointFromScreen(new Point(pt.X, pt.Y));
+            return p.X >= 0 && p.Y >= 0 && p.X <= ActualWidth && p.Y <= ActualHeight;
+        }
+        catch { return false; }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out PointI pt);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PointI
+    {
+        public int X;
+        public int Y;
     }
 
     private void ApplyFont()
@@ -310,6 +347,8 @@ public partial class OverlayWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
+        _hitTimer?.Stop();
+        _hitTimer = null;
         _offsetHold?.Dispose();
         _offsetHold = null;
         try

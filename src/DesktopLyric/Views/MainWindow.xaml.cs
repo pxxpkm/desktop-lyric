@@ -1146,10 +1146,6 @@ public partial class MainWindow : Window
         var win = new PickSongWindow(_lyrics, _lastTitle, _lastArtist, GetTrackDuration());
         if (IsVisible)
             win.Owner = this;
-        win.Topmost = true;
-        var syncOn = _syncTimer.IsEnabled;
-        _syncTimer.Stop();
-        _pollTimer.Stop();
         LyricCandidate? chosen = null;
         var remember = false;
         var searchTitle = "";
@@ -1175,12 +1171,6 @@ public partial class MainWindow : Window
         finally
         {
             _picking = false;
-            if (!_forceClose)
-            {
-                _pollTimer.Start();
-                if (syncOn && _clock.IsPlaying)
-                    _syncTimer.Start();
-            }
         }
         if (chosen == null) return;
         TxtCurrent.Text = "loading...";
@@ -1353,10 +1343,7 @@ public partial class MainWindow : Window
                 LyricClockPos,
                 () => _settings.GlobalOffsetMs,
                 () => CurrentTiming(),
-                ApplyTiming)
-            {
-                Topmost = true,
-            };
+                ApplyTiming);
             if (IsVisible) _timingEditor.Owner = this;
             _timingEditor.Closed += (_, _) => _timingEditor = null;
             RunLog.Write("timing-editor-open");
