@@ -72,6 +72,15 @@ public class LyricChoiceStoreTests : IDisposable
         "TVアニメ「とある科学の超電磁砲」後期OP映像（ LEVEL5 -judgelight-／ fripSide）【NBCユニバーサルAnime✕Music30周年記念OP/ED毎日投稿企画】";
 
     [Fact]
+    public void extracts_quoted_mv_title_and_strips_topic_artist()
+    {
+        Assert.Equal("星をあつめて", LyricChoiceStore.SearchTitle(
+            "fhána「星をあつめて」（劇場版『SHIROBAKO』主題歌）MUSIC VIDEO"));
+        Assert.Equal("ユビオリ", LyricChoiceStore.SearchTitle("大原ゆい子「ユビオリ」 Live Ver."));
+        Assert.Equal("Kana Hanazawa", LyricChoiceStore.SearchArtist("雪に咲く花", "Kana Hanazawa - Topic"));
+    }
+
+    [Fact]
     public void extracts_song_from_youtube_anime_op_dump()
     {
         Assert.Equal("level5-judgelight-", LyricChoiceStore.ExtractParenSong(RailgunOp));

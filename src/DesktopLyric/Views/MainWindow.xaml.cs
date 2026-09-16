@@ -82,6 +82,10 @@ public partial class MainWindow : Window
     private string _pendingTitle = "";
     private string _pendingArtist = "";
     private DispatcherTimer? _titleHold;
+    private bool _lyricsLocked;
+    private PickSongWindow? _pick;
+    private string _smtcTitle = "";
+    private string _smtcArtist = "";
 
     public MainWindow()
     {
@@ -258,6 +262,13 @@ public partial class MainWindow : Window
 
                 if (!string.IsNullOrEmpty(title))
                 {
+                    _smtcTitle = title;
+                    _smtcArtist = artist;
+                    if (_lyricsLocked)
+                    {
+                        RefreshClock();
+                        return;
+                    }
                     // Hover previews (YouTube mini-player / thumbnail) briefly
                     // rewrite SMTC title. Keep the committed track until the
                     // new name stays put and does not look like a 0:00 preview.
@@ -348,6 +359,12 @@ public partial class MainWindow : Window
             _pendingArtist = "";
             return;
         }
+        if (_lyricsLocked)
+        {
+            CancelTitleHold();
+            RefreshClock();
+            return;
+        }
         RunLog.Write("title-commit");
         _pendingTitle = "";
         _pendingArtist = "";
@@ -355,6 +372,7 @@ public partial class MainWindow : Window
         {
             await CommitTrackAsync(title, artist, search: true);
             RefreshClock();
+            _pick?.FollowPlaying(title, artist);
         }
         catch (Exception ex) { ErrorLog.Write(ex); }
     }
@@ -388,6 +406,7 @@ public partial class MainWindow : Window
         TxtArtist.Text = ToDisplay(artist);
         _overlay?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
         _fullscreen?.SetTrackInfo(ToDisplay(title), ToDisplay(artist));
+        _pick?.FollowPlaying(title, artist);
         if (!search) return;
         if (titleChanged)
         {
@@ -1146,6 +1165,7 @@ public partial class MainWindow : Window
         var win = new PickSongWindow(_lyrics, _lastTitle, _lastArtist, GetTrackDuration());
         if (IsVisible)
             win.Owner = this;
+        _pick = win;
         LyricCandidate? chosen = null;
         var remember = false;
         var searchTitle = "";
@@ -1154,7 +1174,11 @@ public partial class MainWindow : Window
         {
             RunLog.Write("pick-open");
             var closed = new TaskCompletionSource<bool>();
-            win.Closed += (_, _) => closed.TrySetResult(true);
+            win.Closed += (_, _) =>
+            {
+                if (_pick == win) _pick = null;
+                closed.TrySetResult(true);
+            };
             win.Show();
             await closed.Task;
             chosen = win.Chosen;
@@ -1248,6 +1272,14 @@ public partial class MainWindow : Window
                 : System.Windows.Media.Color.FromRgb(0xa0, 0xb0, 0xc0));
     }
 
+    private void OnLyricsLockToggled(bool locked)
+    {
+        _lyricsLocked = locked;
+        RunLog.Write(locked ? "lyrics-lock" : "lyrics-unlock");
+        if (locked || string.IsNullOrEmpty(_smtcTitle)) return;
+        _ = CommitTrackAsync(_smtcTitle, _smtcArtist, search: true);
+    }
+
     private void ShowOverlay()
     {
         if (_overlay != null)
@@ -1263,6 +1295,7 @@ public partial class MainWindow : Window
         _overlay.PickSongRequested += () => _ = PickSongAsync(_overlay);
         _overlay.FullscreenRequested += ShowFullscreen;
         _overlay.TimingEditorRequested += OpenTimingEditor;
+        _overlay.LockToggled += OnLyricsLockToggled;
         _overlay.Closed += (_, _) => _overlay = null;
         _overlay.Show();
         RefreshOffsetUi();

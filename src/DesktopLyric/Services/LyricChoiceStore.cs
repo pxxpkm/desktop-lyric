@@ -27,6 +27,8 @@ public static class LyricChoiceStore
         @"^\d+[\.．、]\s*", RegexOptions.CultureInvariant);
     private static readonly Regex TopicSuffix = new(
         @"\s*-\s*topic$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex QuotedJp = new(
+        @"[「『]([^」』]{2,})[」』]", RegexOptions.CultureInvariant);
 
     internal static void ResetForTests(string storePath)
     {
@@ -159,10 +161,12 @@ public static class LyricChoiceStore
         Save();
     }
 
-    /// <summary>Title to send to lyrics APIs: song inside （name／artist）, not the YouTube dump.</summary>
+    /// <summary>Title to send to lyrics APIs: song inside 「」 or （name／artist）, not the YouTube dump.</summary>
     public static string SearchTitle(string? title)
     {
         var song = ExtractParenSong(title);
+        if (string.IsNullOrEmpty(song))
+            song = ExtractQuotedSong(title);
         if (string.IsNullOrEmpty(song))
         {
             song = StripCampaign(Norm(title));
@@ -173,6 +177,14 @@ public static class LyricChoiceStore
         if (LooksLikeTvOp(title) && !LooksLikeTvSize(song))
             song += " TVサイズ";
         return song;
+    }
+
+    internal static string? ExtractQuotedSong(string? title)
+    {
+        var m = QuotedJp.Match(title ?? "");
+        if (!m.Success) return null;
+        var song = m.Groups[1].Value.Trim();
+        return song.Length >= 2 ? song : null;
     }
 
     internal static bool LooksLikeTvOp(string? title)
@@ -200,11 +212,10 @@ public static class LyricChoiceStore
     public static string SearchArtist(string? title, string? artist)
     {
         var paren = ExtractParenArtist(title);
-        if (!string.IsNullOrEmpty(paren) && LooksLikeChannel(artist))
+        var a = TopicSuffix.Replace((artist ?? "").Trim(), "").Trim();
+        if (!string.IsNullOrEmpty(paren) && (string.IsNullOrWhiteSpace(a) || LooksLikeChannel(a)))
             return paren;
-        if (string.IsNullOrWhiteSpace(artist) && !string.IsNullOrEmpty(paren))
-            return paren;
-        return (artist ?? "").Trim();
+        return a;
     }
 
     internal static string NormTitle(string? s) => TitleKeys(s).LastOrDefault() ?? "";

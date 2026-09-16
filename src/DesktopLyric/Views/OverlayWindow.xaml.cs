@@ -22,6 +22,7 @@ public partial class OverlayWindow : Window
     public event Action? PickSongRequested;
     public event Action? FullscreenRequested;
     public event Action? TimingEditorRequested;
+    public event Action<bool>? LockToggled;
 
     public OverlayWindow() : this(AppSettings.Load()) { }
 
@@ -33,6 +34,7 @@ public partial class OverlayWindow : Window
         ApplyAccentColor();
         ApplyTradButton();
         ApplyTopmost();
+        ApplyLock();
         ApplyFont();
         _offsetHold = new HoldRepeat(delta => OffsetNudged?.Invoke(delta));
     }
@@ -44,7 +46,6 @@ public partial class OverlayWindow : Window
         {
             if (PresentationSource.FromVisual(this) is HwndSource src && src.CompositionTarget != null)
                 src.CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
-            ShellWindow.NoActivate(this);
             _hitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
             _hitTimer.Tick += (_, _) => UpdateClickThrough();
             _hitTimer.Start();
@@ -320,6 +321,32 @@ public partial class OverlayWindow : Window
         _settings.OverlayTopmost = !_settings.OverlayTopmost;
         _settings.Save();
         ApplyTopmost();
+    }
+
+    public bool LyricsLocked { get; private set; }
+
+    public void SetLyricsLocked(bool locked)
+    {
+        LyricsLocked = locked;
+        ApplyLock();
+    }
+
+    private void ApplyLock()
+    {
+        if (BtnLock == null) return;
+        BtnLock.Foreground = LyricsLocked
+            ? new SolidColorBrush(Color.FromRgb(0x00, 0xd4, 0xff))
+            : new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90));
+        BtnLock.ToolTip = LyricsLocked
+            ? "已鎖定歌詞。再撳解除，跟返播放器。"
+            : "鎖定而家呢首歌詞。播放器換歌／YouTube 預覽都唔會改。再撳解除。";
+    }
+
+    private void OnToggleLock(object sender, RoutedEventArgs e)
+    {
+        LyricsLocked = !LyricsLocked;
+        ApplyLock();
+        LockToggled?.Invoke(LyricsLocked);
     }
 
     private void OnTimingEditor(object sender, RoutedEventArgs e) => TimingEditorRequested?.Invoke();

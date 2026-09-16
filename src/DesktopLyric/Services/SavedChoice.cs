@@ -40,6 +40,8 @@ public sealed class SavedChoice
 
         var title = parsed.Select(p => p.title)
                 .FirstOrDefault(t => LyricChoiceStore.LooksLikeTvSize(t))
+            ?? parsed.Select(p => LyricChoiceStore.ExtractParenSong(p.title))
+                .FirstOrDefault(t => !string.IsNullOrEmpty(t))
             ?? parsed.Select(p => p.display)
                 .Where(t => t.Length is > 0 and < 70 && !t.Contains("映像"))
                 .OrderBy(t => t.Length)

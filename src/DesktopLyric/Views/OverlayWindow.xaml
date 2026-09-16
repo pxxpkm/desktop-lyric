@@ -153,6 +153,11 @@
                             Background="Transparent" Foreground="#90FFFFFF"
                             BorderThickness="0" FontSize="11" Cursor="Hand"
                             Width="24" Height="24" Margin="0,0,2,0"/>
+                    <Button x:Name="BtnLock" Content="鎖" Click="OnToggleLock" Style="{x:Null}"
+                            ToolTip="鎖定而家呢首歌詞。播放器換歌／YouTube 預覽都唔會改。再撳解除。"
+                            Background="Transparent" Foreground="#90FFFFFF"
+                            BorderThickness="0" FontSize="11" Cursor="Hand"
+                            Width="24" Height="24" Margin="0,0,2,0"/>
                     <Button Content="選" Click="OnPickSong" Style="{x:Null}"
                             ToolTip="同名歌揀正確版本"
                             Background="Transparent" Foreground="#90FFFFFF"

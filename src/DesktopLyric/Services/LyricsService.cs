@@ -34,10 +34,11 @@ public class LyricsService
 
         var qTitle = LyricChoiceStore.SearchTitle(title);
         var qArtist = LyricChoiceStore.SearchArtist(title, artist);
+        var searchDur = UsableTrackDuration(trackDuration);
 
         var tasks = new[]
         {
-            SearchNetease(qTitle, qArtist, trackDuration),
+            SearchNetease(qTitle, qArtist, searchDur),
             SearchQQ(qTitle, qArtist),
             SearchKugou(qTitle, qArtist),
             SearchLrcLib(qTitle, qArtist)
@@ -47,7 +48,7 @@ public class LyricsService
 
         // if we have track duration, score each result by how close its last line is
         List<LrcLine>? result;
-        if (trackDuration is { TotalSeconds: >= 20 } dur)
+        if (UsableTrackDuration(trackDuration) is { } dur)
         {
             result = PickByDuration(results, dur);
         }
@@ -63,7 +64,7 @@ public class LyricsService
             if (clean != qTitle)
             {
                 var retry = await Task.WhenAll(
-                    SearchNetease(clean, qArtist, trackDuration),
+                    SearchNetease(clean, qArtist, searchDur),
                     SearchLrcLib(clean, qArtist));
                 if (gen != _searchGen) return null;
                 result = retry.FirstOrDefault(r => r != null && r.Count > 0);
@@ -98,7 +99,7 @@ public class LyricsService
                 list.Add(c);
             }
         }
-        if (trackDuration is { TotalSeconds: >= 20 } dur)
+        if (UsableTrackDuration(trackDuration) is { } dur)
         {
             list = list
                 .OrderBy(c => DurationDelta(c.Duration, dur))
@@ -106,6 +107,14 @@ public class LyricsService
                 .ToList();
         }
         return list;
+    }
+
+    /// <summary>YouTube mixes are an hour long; scoring by that hides the real 4-minute song.</summary>
+    internal static TimeSpan? UsableTrackDuration(TimeSpan? trackDuration)
+    {
+        if (trackDuration is not { TotalSeconds: >= 20 } d) return null;
+        if (d.TotalMinutes >= 12) return null;
+        return d;
     }
 
     private static double DurationDelta(TimeSpan song, TimeSpan track)

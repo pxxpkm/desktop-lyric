@@ -506,4 +506,12 @@ public class LrcParseTests
         Assert.Equal("middle", lines[1].Text);
         Assert.Equal("late", lines[2].Text);
     }
+
+    [Fact]
+    public void long_youtube_duration_is_not_used_to_score_lyrics()
+    {
+        Assert.Null(LyricsService.UsableTrackDuration(TimeSpan.FromHours(2)));
+        Assert.Equal(TimeSpan.FromMinutes(4), LyricsService.UsableTrackDuration(TimeSpan.FromMinutes(4)));
+        Assert.Null(LyricsService.UsableTrackDuration(TimeSpan.FromSeconds(8)));
+    }
 }

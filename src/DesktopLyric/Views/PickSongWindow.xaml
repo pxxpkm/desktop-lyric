@@ -41,22 +41,53 @@
                        Foreground="#80A0B0C0" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
 
             <Grid Grid.Row="2" Margin="0,0,0,10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBox x:Name="TxtTitle" Grid.Column="0" Margin="0,0,6,0"
+                <TextBox x:Name="TxtTitle" Grid.Row="0" Grid.Column="0" Margin="0,0,4,0"
+                         ToolTip="歌名。鎖住就唔跟播放器。"
                          Background="#18FFFFFF" Foreground="#F0F0F5" BorderBrush="#22FFFFFF"
                          CaretBrush="#00d4ff" Padding="8,7" FontSize="12"
+                         FontFamily="Yu Gothic UI, Meiryo UI, Microsoft JhengHei UI, Segoe UI"
+                         InputMethod.IsInputMethodEnabled="True"
                          KeyDown="SearchBox_KeyDown"/>
-                <TextBox x:Name="TxtArtist" Grid.Column="1" Margin="0,0,6,0"
+                <ToggleButton x:Name="ChkLockTitle" Grid.Row="0" Grid.Column="1"
+                              Content="鎖" Margin="0,0,8,0" Padding="8,6" Cursor="Hand"
+                              ToolTip="鎖定歌名。播放器換歌都唔改呢格。"
+                              Background="#10FFFFFF" Foreground="#A0B0C0"
+                              BorderBrush="#20FFFFFF" Click="Lock_Click"/>
+                <TextBox x:Name="TxtArtist" Grid.Row="0" Grid.Column="2" Margin="0,0,4,0"
+                         ToolTip="歌手。鎖住就唔跟播放器。"
                          Background="#18FFFFFF" Foreground="#F0F0F5" BorderBrush="#22FFFFFF"
                          CaretBrush="#00d4ff" Padding="8,7" FontSize="12"
+                         FontFamily="Yu Gothic UI, Meiryo UI, Microsoft JhengHei UI, Segoe UI"
+                         InputMethod.IsInputMethodEnabled="True"
                          KeyDown="SearchBox_KeyDown"/>
-                <Button Grid.Column="2" Content="搜尋" Click="Search_Click"
+                <ToggleButton x:Name="ChkLockArtist" Grid.Row="0" Grid.Column="3"
+                              Content="鎖" Margin="0,0,8,0" Padding="8,6" Cursor="Hand"
+                              ToolTip="鎖定歌手。播放器換歌都唔改呢格。"
+                              Background="#10FFFFFF" Foreground="#A0B0C0"
+                              BorderBrush="#20FFFFFF" Click="Lock_Click"/>
+                <Button Grid.Row="0" Grid.Column="4" Content="搜尋" Click="Search_Click"
                         Background="#1800d4ff" Foreground="#00d4ff"
                         BorderBrush="#4000d4ff" Padding="14,7" Cursor="Hand"/>
+                <DockPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5" Margin="0,8,0,0">
+                    <Button DockPanel.Dock="Right" Content="讀取播放中" Click="ReadPlaying_Click"
+                            ToolTip="用而家播放器嘅歌名／歌手填入未鎖嘅格，然後搜。"
+                            Background="#10FFFFFF" Foreground="#A0B0C0"
+                            BorderBrush="#20FFFFFF" Padding="10,5" Cursor="Hand"/>
+                    <TextBlock Text="鎖住嘅格唔會跟播放器。字幕窗「鎖」可以鎖定 overlay 歌詞。"
+                               Foreground="#70A0B0C0" FontSize="10.5" VerticalAlignment="Center"
+                               TextWrapping="Wrap"/>
+                </DockPanel>
             </Grid>
 
             <TextBlock x:Name="TxtStatus" Grid.Row="3" VerticalAlignment="Top"
